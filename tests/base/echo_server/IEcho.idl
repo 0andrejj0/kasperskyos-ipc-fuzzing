@@ -1,0 +1,6 @@
+package test.IEcho
+
+interface
+{
+    Echo(in UInt32 input, out UInt32 output);
+}

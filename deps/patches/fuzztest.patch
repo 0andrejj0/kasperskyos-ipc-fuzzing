@@ -1,0 +1,461 @@
+diff --git a/cmake/BuildDependencies.cmake b/cmake/BuildDependencies.cmake
+index d2247d6..cfec049 100644
+--- a/cmake/BuildDependencies.cmake
++++ b/cmake/BuildDependencies.cmake
+@@ -5,8 +5,8 @@ include(FetchContent)
+ set(gtest_URL https://github.com/google/googletest.git)
+ set(gtest_TAG release-1.12.1)
+ 
+-set(absl_URL https://github.com/abseil/abseil-cpp.git)
+-set(absl_TAG 20230125.0)
++# set(absl_URL https://github.com/abseil/abseil-cpp.git)
++# set(absl_TAG 20230125.0)
+ 
+ set(re2_URL https://github.com/google/re2.git)
+ set(re2_TAG 2023-03-01)
+@@ -22,11 +22,11 @@ if (FUZZTEST_USE_GTEST OR FUZZTEST_TESTING)
+   )
+ endif ()
+ 
+-FetchContent_Declare(
+-  abseil-cpp
+-  GIT_REPOSITORY ${absl_URL}
+-  GIT_TAG        ${absl_TAG}
+-)
++# FetchContent_Declare(
++#   abseil-cpp
++#   GIT_REPOSITORY ${absl_URL}
++#   GIT_TAG        ${absl_TAG}
++# )
+ 
+ FetchContent_Declare(
+   re2
+@@ -42,8 +42,6 @@ if (FUZZTEST_TESTING)
+   )
+ endif ()
+ 
+-set(ABSL_PROPAGATE_CXX_STD ON)
+-FetchContent_MakeAvailable(abseil-cpp)
+ set(RE2_BUILD_TESTING OFF CACHE BOOL "")
+ FetchContent_MakeAvailable(re2)
+ 
+diff --git a/common/CMakeLists.txt b/common/CMakeLists.txt
+new file mode 100644
+index 0000000..e9682d0
+--- /dev/null
++++ b/common/CMakeLists.txt
+@@ -0,0 +1,228 @@
++# Copyright 2024 Google LLC
++#
++# Licensed under the Apache License, Version 2.0 (the "License");
++# you may not use this file except in compliance with the License.
++# You may obtain a copy of the License at
++#
++#      http://www.apache.org/licenses/LICENSE-2.0
++#
++# Unless required by applicable law or agreed to in writing, software
++# distributed under the License is distributed on an "AS IS" BASIS,
++# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++# See the License for the specific language governing permissions and
++# limitations under the License.
++
++if (NOT COMPILER_GCC)
++    SET(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fsanitize-coverage=0")
++    SET(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -fsanitize-coverage=0")
++endif()
++
++### Libraries
++
++fuzztest_cc_library(
++  NAME
++    bazel
++  HDRS
++    "bazel.h"
++  SRCS
++    "bazel.cc"
++  DEPS
++    fuzztest::common_logging
++    absl::status
++    absl::strings
++    absl::time
++)
++
++fuzztest_cc_library(
++  NAME
++    blob_file
++  HDRS
++    "blob_file.h"
++  SRCS
++    "blob_file.cc"
++  DEFINES
++    # Riegeli doesn't yet support CMake builds:
++    # https://github.com/google/riegeli/issues/16
++    CENTIPEDE_DISABLE_RIEGELI
++  DEPS
++    fuzztest::defs
++    fuzztest::hash
++    fuzztest::common_logging
++    fuzztest::remote_file
++    fuzztest::status_macros
++    absl::core_headers
++    absl::nullability
++    absl::status
++    absl::statusor
++    absl::str_format
++    absl::string_view
++    absl::time
++)
++
++fuzztest_cc_library(
++  NAME
++    crashing_input_filename
++  HDRS
++    "crashing_input_filename.h"
++  SRCS
++    "crashing_input_filename.cc"
++  DEPS
++    absl::status
++    absl::statusor
++    absl::strings
++    fuzztest::io
++)
++
++fuzztest_cc_library(
++  NAME
++    defs
++  HDRS
++    "defs.h"
++  DEPS
++    absl::span
++)
++
++fuzztest_cc_library(
++  NAME
++    hash
++  HDRS
++    "hash.h"
++  SRCS
++    "hash.cc"
++  DEPS
++    fuzztest::defs
++    fuzztest::sha1
++)
++
++fuzztest_cc_library(
++  NAME
++    common_logging
++  HDRS
++    "logging.h"
++  DEPS
++    absl::absl_check
++    absl::absl_log
++)
++
++fuzztest_cc_library(
++  NAME
++    remote_file
++  HDRS
++    "remote_file.h"
++  SRCS
++    "remote_file.cc"
++#    "remote_file_oss.cc"
++  DEFINES
++    # Riegeli doesn't yet support CMake builds:
++    # https://github.com/google/riegeli/issues/16
++    CENTIPEDE_DISABLE_RIEGELI
++  DEPS
++    fuzztest::defs
++    fuzztest::common_logging
++    fuzztest::status_macros
++    absl::nullability
++    absl::status
++    absl::statusor
++    absl::strings
++)
++
++fuzztest_cc_library(
++  NAME
++    sha1
++  HDRS
++    "sha1.h"
++  SRCS
++    "sha1.cc"
++  DEPS
++    absl::nullability
++)
++
++fuzztest_cc_library(
++  NAME
++    status_macros
++  HDRS
++    "status_macros.h"
++  DEPS
++    fuzztest::common_logging
++    absl::core_headers
++)
++
++fuzztest_cc_library(
++  NAME
++    test_util
++  HDRS
++    "test_util.h"
++  SRCS
++    "test_util.cc"
++  DEPS
++    fuzztest::common_logging
++    fuzztest::blob_file
++    fuzztest::defs
++    absl::strings
++    absl::str_format
++    GTest::gtest
++  TESTONLY
++)
++
++fuzztest_cc_library(
++  NAME
++    temp_dir
++  HDRS
++    "temp_dir.h"
++  SRCS
++    "temp_dir.cc"
++  DEPS
++    fuzztest::common_logging
++    absl::string_view
++    absl::strings
++)
++
++### Tests
++
++fuzztest_cc_test(
++  NAME
++    blob_file_test
++  SRCS
++    "blob_file_test.cc"
++  DEPS
++    fuzztest::blob_file
++    fuzztest::defs
++    fuzztest::test_util
++    absl::status
++    GTest::gmock_main
++)
++
++fuzztest_cc_test(
++  NAME
++    crashing_input_filename_test
++  SRCS
++    "crashing_input_filename_test.cc"
++  DEPS
++    fuzztest::crashing_input_filename
++    GTest::gmock_main
++)
++
++fuzztest_cc_test(
++  NAME
++    hash_test
++  SRCS
++    "hash_test.cc"
++  DEPS
++    fuzztest::hash
++    GTest::gmock_main
++)
++
++fuzztest_cc_test(
++  NAME
++    remote_file_test
++  SRCS
++    "remote_file_test.cc"
++  DEPS
++    fuzztest::common_logging
++    fuzztest::remote_file
++    fuzztest::test_util
++    absl::check
++    absl::status
++    absl::time
++    GTest::gmock_main
++)
+diff --git a/e2e_tests/CMakeLists.txt b/e2e_tests/CMakeLists.txt
+index 8f62e07..1db31e4 100644
+--- a/e2e_tests/CMakeLists.txt
++++ b/e2e_tests/CMakeLists.txt
+@@ -13,7 +13,6 @@ target_link_libraries(
+   fuzztest_io
+   fuzztest_logging
+   fuzztest_serialization
+-  fuzztest_subprocess
+   fuzztest_type_support
+   re2
+   absl::flat_hash_map
+@@ -43,7 +42,6 @@ target_link_libraries(
+   benchmark_test
+   PUBLIC
+   fuzztest_logging
+-  fuzztest_subprocess
+   re2
+   absl::flat_hash_map
+   absl::flags
+diff --git a/fuzztest/CMakeLists.txt b/fuzztest/CMakeLists.txt
+index 2cf0e9c..2fbdd5a 100644
+--- a/fuzztest/CMakeLists.txt
++++ b/fuzztest/CMakeLists.txt
+@@ -363,43 +363,6 @@ if (FUZZTEST_TESTING)
+   )
+ endif ()
+ 
+-add_library(
+-  fuzztest_subprocess
+-  OBJECT
+-  internal/subprocess.cc
+-  internal/subprocess.h
+-)
+-
+-target_link_libraries(
+-  fuzztest_subprocess
+-  PUBLIC
+-  fuzztest_logging
+-  absl::flat_hash_map
+-  absl::strings
+-  absl::time
+-)
+-
+-if (FUZZTEST_TESTING)
+-  add_executable(
+-    fuzztest_subprocess_test
+-    internal/subprocess_test.cc
+-  )
+-  target_link_libraries(
+-    fuzztest_subprocess_test
+-    PUBLIC
+-    fuzztest_logging
+-    fuzztest_subprocess
+-    absl::time
+-    GTest::gmock_main
+-  )
+-  add_test(
+-    NAME
+-    fuzztest_subprocess_test
+-    COMMAND
+-    fuzztest_subprocess_test
+-  )
+-endif ()
+-
+ add_library(
+   fuzztest_domain
+   OBJECT
+@@ -662,7 +625,7 @@ if (FUZZTEST_USE_GTEST OR FUZZTEST_TESTING)
+     fuzztest_regexp_dfa
+     fuzztest_runtime
+     fuzztest_table_of_recent_compares
+-    fuzztest_subprocess
++#    fuzztest_subprocess
+     fuzztest_compatibility_mode
+     absl::flags
+     absl::flags_parse
+diff --git a/grammar_codegen/generated_antlr_parser/ANTLRv4Lexer.cpp b/grammar_codegen/generated_antlr_parser/ANTLRv4Lexer.cpp
+index 93aba6d..cdf52c8 100755
+--- a/grammar_codegen/generated_antlr_parser/ANTLRv4Lexer.cpp
++++ b/grammar_codegen/generated_antlr_parser/ANTLRv4Lexer.cpp
+@@ -34,6 +34,8 @@
+ 
+ #include "ANTLRv4Lexer.h"
+ 
++#include <thread>
++
+ using namespace antlr4;
+ 
+ using namespace antlr4_grammar;
+@@ -72,7 +74,7 @@ struct ANTLRv4LexerStaticData final {
+   std::unique_ptr<antlr4::atn::ATN> atn;
+ };
+ 
+-::antlr4::internal::OnceFlag antlrv4lexerLexerOnceFlag;
++std::once_flag antlrv4lexerLexerOnceFlag;
+ ANTLRv4LexerStaticData *antlrv4lexerLexerStaticData = nullptr;
+ 
+ void antlrv4lexerLexerInitialize() {
+@@ -1047,6 +1049,6 @@ void ANTLRv4Lexer::END_ACTIONAction(antlr4::RuleContext *context,
+ }
+ 
+ void ANTLRv4Lexer::initialize() {
+-  ::antlr4::internal::call_once(antlrv4lexerLexerOnceFlag,
++   std::call_once(antlrv4lexerLexerOnceFlag,
+                                 antlrv4lexerLexerInitialize);
+ }
+diff --git a/grammar_codegen/generated_antlr_parser/ANTLRv4Parser.cpp b/grammar_codegen/generated_antlr_parser/ANTLRv4Parser.cpp
+index 72ab474..07087ff 100755
+--- a/grammar_codegen/generated_antlr_parser/ANTLRv4Parser.cpp
++++ b/grammar_codegen/generated_antlr_parser/ANTLRv4Parser.cpp
+@@ -36,6 +36,8 @@
+ 
+ #include "ANTLRv4ParserListener.h"
+ 
++#include <thread>
++
+ using namespace antlrcpp;
+ using namespace antlr4_grammar;
+ 
+@@ -67,7 +69,7 @@ struct ANTLRv4ParserStaticData final {
+   std::unique_ptr<antlr4::atn::ATN> atn;
+ };
+ 
+-::antlr4::internal::OnceFlag antlrv4parserParserOnceFlag;
++std::once_flag antlrv4parserParserOnceFlag;
+ ANTLRv4ParserStaticData *antlrv4parserParserStaticData = nullptr;
+ 
+ void antlrv4parserParserInitialize() {
+@@ -6197,6 +6199,6 @@ ANTLRv4Parser::IdentifierContext *ANTLRv4Parser::identifier() {
+ }
+ 
+ void ANTLRv4Parser::initialize() {
+-  ::antlr4::internal::call_once(antlrv4parserParserOnceFlag,
++  std::call_once(antlrv4parserParserOnceFlag,
+                                 antlrv4parserParserInitialize);
+ }
+diff --git a/grammar_codegen/generated_antlr_parser/CMakeLists.txt b/grammar_codegen/generated_antlr_parser/CMakeLists.txt
+new file mode 100644
+index 0000000..51e48ff
+--- /dev/null
++++ b/grammar_codegen/generated_antlr_parser/CMakeLists.txt
+@@ -0,0 +1,22 @@
++add_library(
++  generated_antlr_parser
++  STATIC
++  ANTLRv4Lexer.cpp
++  ANTLRv4Parser.cpp
++  ANTLRv4ParserBaseListener.cpp
++  ANTLRv4ParserListener.cpp
++)
++
++target_link_libraries(
++  generated_antlr_parser
++  PUBLIC
++  antlr4_static
++)
++
++target_include_directories(
++  generated_antlr_parser
++  PUBLIC
++  /usr/include/antlr4-runtime/
++  ${antlr_cpp_SOURCE_DIR}/runtime/src
++  ${CMAKE_CURRENT_SOURCE_DIR}
++)
+\ No newline at end of file
+diff --git a/tools/CMakeLists.txt b/tools/CMakeLists.txt
+new file mode 100644
+index 0000000..30136bb
+--- /dev/null
++++ b/tools/CMakeLists.txt
+@@ -0,0 +1,14 @@
++add_executable(
++  grammar_domain_code_generator
++  grammar_domain_code_generator.cc
++)
++
++target_link_libraries(
++  grammar_domain_code_generator
++  absl::flags
++  absl::flags_parse
++  fuzztest_common_logging
++  code_generation
++)
++
++target_link_directories(grammar_domain_code_generator PRIVATE /usr/lib/x86_64-linux-gnu/)

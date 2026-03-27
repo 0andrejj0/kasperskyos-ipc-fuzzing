@@ -1,0 +1,7 @@
+package kl.ICoverageMapper
+
+interface
+{
+    AddInline8BitCounters(in Handle shmem, in UInt64 shmemSize, in UInt64 dataIndex, in UInt64 dataSize);
+    Ready();
+}
