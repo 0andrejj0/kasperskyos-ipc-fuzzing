@@ -32,17 +32,21 @@ size_t AlignUp(size_t size)
     return size;
 }
 
-static std::optional<coverage_mapper::SharedMemoryBuffer> shmem_8bit_counters;
+std::optional<coverage_mapper::SharedMemoryBuffer> shmem_8bit_counters;
+uint32_t* pc_guard_start = 0;
+uint32_t* pc_guard_stop = 0;
 
 } // namespace
 
 extern "C"
-void __sanitizer_cov_trace_pc_guard_init(uint32_t *start, uint32_t *stop)
+void __sanitizer_cov_trace_pc_guard_init(uint32_t* start, uint32_t* stop)
 try
 {
+    pc_guard_start = start;
+    pc_guard_stop = stop;
     ERR(COVERAGE, "Coverage init: %x, %x", (void*)start, (void*)stop);
 
-    size_t coverageSize = stop - start;
+    size_t coverageSize = (stop - start) / sizeof(uint32_t) + (((stop - start) % sizeof(uint32_t)) > 0);
     size_t shmemSize = AlignUp(coverageSize);
 
     auto shmem = coverage_mapper::SharedMemoryBuffer(shmemSize);
@@ -56,8 +60,8 @@ try
     auto proxy = app.MakeProxy<kosipc::stdcpp::kl::ICoverageMapper>(kosipc::ConnectDcmPublication(std::nullopt, std::nullopt, std::nullopt, timeout, timeout));
     // auto proxy = app.MakeProxy<kosipc::stdcpp::kl::ICoverageMapper>(kosipc::ConnectDcmPublication());
 
+    proxy->AddInline8BitCounters(shmem_8bit_counters->GetHandle(), shmem_8bit_counters->GetSize(), 0, coverageSize);
     proxy->Ready();
-    proxy->AddInline8BitCounters(INVALID_HANDLE, 1024, 1024, 1024);
 }
 catch (const std::exception& e)
 {
@@ -65,9 +69,12 @@ catch (const std::exception& e)
 }
 
 extern "C"
-void __sanitizer_cov_trace_pc_guard(uint32_t *guard)
+void __sanitizer_cov_trace_pc_guard(uint32_t* guard)
 {
-
+    size_t idx = guard - pc_guard_start;
+    char* counter = (char*)shmem_8bit_counters->GetData() + idx;
+    if (*counter != 128)
+        ++counter;
 }
 
 __attribute__((constructor))

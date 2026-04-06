@@ -27,10 +27,10 @@ target_compile_options(Fuzzer PRIVATE
     -g
     -DFUZZING_BUILD_MODE_UNSAFE_FOR_PRODUCTION
     -UNDEBUG
-    -fsanitize-coverage=inline-8bit-counters # TODO investigate why fail with trace-pc-guard
-    -fsanitize-coverage=trace-cmp
-    -fprofile-instr-generate
-    -fcoverage-mapping
+#    -fsanitize-coverage=inline-8bit-counters # TODO investigate why fail with trace-pc-guard
+#    -fsanitize-coverage=trace-cmp
+#    -fprofile-instr-generate
+#    -fcoverage-mapping
 )
 
 target_link_options(Fuzzer PRIVATE

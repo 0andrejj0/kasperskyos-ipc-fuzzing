@@ -32,27 +32,27 @@ void mapCoverage()
 {
 }
 
-// class EchoIpcFixture
-// {
-// public:
-//     EchoIpcFixture()
-//         : m_app(kosipc::MakeApplicationPureClient())
-//         , m_proxy(m_app.MakeProxy<kosipc::stdcpp::test::IEcho>(kosipc::ConnectDcmPublication()))
-//     {
-//     }
+class EchoIpcFixture
+{
+public:
+    EchoIpcFixture()
+        : m_app(kosipc::MakeApplicationPureClient())
+        , m_proxy(m_app.MakeProxy<kosipc::stdcpp::test::IEcho>(kosipc::ConnectDcmPublication()))
+    {
+    }
 
-//     void Echo(int i)
-//     {
-//         uint32_t res{0};
-//         m_proxy->Echo(i, res);
-//         EXPECT_EQ(i, res);
-//     }
+    void Echo(int i)
+    {
+        uint32_t res{0};
+        m_proxy->Echo(i, res);
+        EXPECT_EQ(i, res);
+    }
 
-//     kosipc::Application m_app;
-//     kosipc::unique_ptr<kosipc::stdcpp::test::IEcho> m_proxy;
-// };
-// FUZZ_TEST_F(EchoIpcFixture, Echo)
-//     .WithDomains(fuzztest::Positive<uint32_t>());
+    kosipc::Application m_app;
+    kosipc::unique_ptr<kosipc::stdcpp::test::IEcho> m_proxy;
+};
+FUZZ_TEST_F(EchoIpcFixture, Echo)
+    .WithDomains(fuzztest::Positive<uint32_t>());
 
 void TestEchoIpc(uint32_t i)
 {
@@ -70,8 +70,8 @@ FUZZ_TEST(IPC, TestEchoIpc)
 
 void TestEchoLocal(uint32_t i)
 {
-    // std::cerr << "LOCAL RUN " << i << '\n';
-    // EXPECT_NE(i, 123);
+    std::cerr << "LOCAL RUN " << i << '\n';
+    EXPECT_NE(i, 123);
 }
 FUZZ_TEST(LOCAL, TestEchoLocal)
     .WithDomains(fuzztest::Positive<uint32_t>());
@@ -79,15 +79,14 @@ FUZZ_TEST(LOCAL, TestEchoLocal)
 
 int main(int argc, char** argv) {
 
-    // if (dup2(STDOUT_FILENO, STDERR_FILENO) != 0) {
-    //     std::cerr << "Failed to redirect stdout to stderr" << std::endl;
-    // }
+    if (dup2(STDOUT_FILENO, STDERR_FILENO) != 0) {
+        std::cerr << "Failed to redirect stdout to stderr" << std::endl;
+    }
 
-    // std::cerr << "START\n";
+    std::cerr << "START\n";
 
     kosipc::Application app = kosipc::MakeApplicationAutodetect();
     kosipc::components::Root root;
-    coverage_mapper::RunCoverageMapperReciever(root.mapper, app);
 
     char* custom_argv[] = {
         "my_fuzzer",
@@ -97,19 +96,18 @@ int main(int argc, char** argv) {
         nullptr
     };
 
-    std::cerr << "KEK 1\n";
-
     int custom_argc = sizeof(custom_argv)/sizeof(custom_argv[0]) - 1;
 
-    std::cerr << "KEK 2\n";
-
     testing::InitGoogleTest(&custom_argc, const_cast<char**>(custom_argv));
-    std::cerr << "KEK 3\n";
 
     char** argvv = custom_argv;
     GOOGLEFUZZTEST_REGISTER_FOR_GOOGLETEST(fuzztest::RunMode::kUnitTest, &custom_argc, &argvv);
 
-    std::cerr << "KEK 4\n";
+    coverage_mapper::RunCoverageMapperReciever(root.mapper, app);
 
-    return RUN_ALL_TESTS();
+    coverage_mapper::WaitCoverageReady();
+
+    auto rc = RUN_ALL_TESTS();
+    coverage_mapper::Stop();
+    return rc;
 }

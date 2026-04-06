@@ -10,4 +10,8 @@ namespace coverage_mapper {
 
 kos::Result RunCoverageMapperReciever(kosipc::components::kl::CoverageMapper& component, kosipc::Application& app);
 
+kos::Result WaitCoverageReady();
+
+kos::Result Stop();
+
 } // namespace coverage_mapper
