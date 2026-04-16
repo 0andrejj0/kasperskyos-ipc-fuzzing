@@ -1,6 +1,19 @@
 package test.IEcho
 
+struct TestStructure {
+    UInt64 param1;
+    UInt32 param2;
+}
+
+struct TestStructureBig {
+    TestStructure param1;
+    UInt32 param2;
+}
+
+const UInt32 TestStringSize = 5120;
+typedef string<TestStringSize> TestString;
+
 interface
 {
-    Echo(in UInt32 input, out UInt32 output);
+    Echo(in TestStructureBig input, out TestStructureBig output);
 }

@@ -25,6 +25,37 @@
 #include <fcntl.h>
 #include <sys/mman.h>
 
+
+///// GENERATED CODE
+#include <fuzztest/fuzztest.h>
+#include <fuzztest/domain.h>
+
+#include <cstdint>
+#include <string>
+#include <vector>
+
+template <typename T>
+auto GetDefaultMutator();
+
+template<>
+auto GetDefaultMutator<kosipc::stdcpp::test::TestStructure>() {
+    return fuzztest::StructOf<kosipc::stdcpp::test::TestStructure>(
+        fuzztest::Arbitrary<uint64_t>(), // param1
+        fuzztest::Arbitrary<uint32_t>() // param2
+    );
+}
+
+// Mutator for struct TestStructureBig using StructOf
+template<>
+auto GetDefaultMutator<kosipc::stdcpp::test::TestStructureBig>() {
+    return fuzztest::StructOf<kosipc::stdcpp::test::TestStructureBig>(
+        GetDefaultMutator<kosipc::stdcpp::test::TestStructure>(), // param1
+        fuzztest::Arbitrary<uint32_t>() // param2
+    );
+}
+
+/////
+
 using namespace std::chrono_literals;
 
 __attribute__((constructor))
@@ -41,40 +72,44 @@ public:
     {
     }
 
-    void Echo(int i)
+    void Echo(kosipc::stdcpp::test::TestStructureBig input)
     {
-        uint32_t res{0};
-        m_proxy->Echo(i, res);
-        EXPECT_EQ(i, res);
+        kosipc::stdcpp::test::TestStructureBig result = input;
+        m_proxy->Echo(input, result);
+        EXPECT_EQ(input.param1.param1, result.param1.param1);
+        EXPECT_EQ(input.param1.param2, result.param1.param2);
+        EXPECT_EQ(input.param2, result.param2);
     }
 
     kosipc::Application m_app;
     kosipc::unique_ptr<kosipc::stdcpp::test::IEcho> m_proxy;
 };
 FUZZ_TEST_F(EchoIpcFixture, Echo)
-    .WithDomains(fuzztest::Positive<uint32_t>());
+    .WithDomains(GetDefaultMutator<kosipc::stdcpp::test::TestStructureBig>());
 
-void TestEchoIpc(uint32_t i)
+void TestEchoIpc(kosipc::stdcpp::test::TestStructureBig input)
 {
     kosipc::Application app = kosipc::MakeApplicationPureClient();
 
     auto proxy = app.MakeProxy<kosipc::stdcpp::test::IEcho>(kosipc::ConnectDcmPublication());
-    uint32_t res;
-    proxy->Echo(i, res);
+    kosipc::stdcpp::test::TestStructureBig result = input;
+    proxy->Echo(input, result);
 
-    EXPECT_EQ(i, res);
+    EXPECT_EQ(input.param1.param1, result.param1.param1);
+    EXPECT_EQ(input.param1.param2, result.param1.param2);
+    EXPECT_EQ(input.param2, result.param2);
 }
 FUZZ_TEST(IPC, TestEchoIpc)
-    .WithDomains(fuzztest::Positive<uint32_t>());
+    .WithDomains(GetDefaultMutator<kosipc::stdcpp::test::TestStructureBig>());
 
 
-void TestEchoLocal(uint32_t i)
-{
-    std::cerr << "LOCAL RUN " << i << '\n';
-    EXPECT_NE(i, 123);
-}
-FUZZ_TEST(LOCAL, TestEchoLocal)
-    .WithDomains(fuzztest::Positive<uint32_t>());
+// void TestEchoLocal(uint32_t i)
+// {
+//     // std::cerr << "LOCAL RUN " << i << '\n';
+//     EXPECT_NE(i, 123);
+// }
+// FUZZ_TEST(LOCAL, TestEchoLocal)
+//     .WithDomains(fuzztest::Positive<uint32_t>());
 
 
 int main(int argc, char** argv) {
@@ -93,6 +128,7 @@ int main(int argc, char** argv) {
         "--fork=false",
         "--timeout=1",
         "--runs=10",
+        "--verbose=1",
         nullptr
     };
 

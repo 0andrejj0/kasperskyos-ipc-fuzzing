@@ -13,6 +13,8 @@ init:
 	rm -rf deps/abseil-cpp
 	rm -rf deps/fuzztest
 	mkdir -p deps
+	python3 -m venv .venv
+	source .venv/bin/activate
 	cd deps && git clone git@github.com:abseil/abseil-cpp.git && cd abseil-cpp && git checkout e72b94a2f257ba069ec0b99e557e9f1f6b9c1a3e && git apply ../patches/abseil-cpp.patch
 	cd deps && git clone git@github.com:google/fuzztest.git && cd fuzztest && git checkout 170281ea00744c6075375b756fcfa4a1a5d9346a && git apply ../patches/fuzztest.patch
 
@@ -69,10 +71,6 @@ tests:
         -DCMAKE_BUILD_TYPE=Release \
 		../../tests
 	cd .build/tests && make
-
-generator:
-	mkdir -p .build/generator
-	cd .build/generator && cmake ../../generator && make
 
 clean:
 	@echo "Clean... .build"

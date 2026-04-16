@@ -1,3 +1,6 @@
 .build
+.venv
+__pycache__/
+*.egg-info
 deps/abseil-cpp
 deps/fuzztest
