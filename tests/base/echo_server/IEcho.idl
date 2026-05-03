@@ -1,5 +1,7 @@
 package test.IEcho
 
+import kl.core.Types
+
 const UInt32 TestStringSize = 5120;
 typedef string<TestStringSize> TestString;
 
@@ -12,6 +14,9 @@ struct TestStructureBig {
     TestStructure param1;
     UInt32 param2;
 }
+
+const UInt32 TestBytesSize = 277;
+typedef bytes<TestBytesSize> TestBytes;
 
 struct TestStructureStr {
     TestString param1;
