@@ -1,5 +1,8 @@
 package test.IEcho
 
+const UInt32 TestStringSize = 5120;
+typedef string<TestStringSize> TestString;
+
 struct TestStructure {
     UInt64 param1;
     UInt32 param2;
@@ -10,8 +13,10 @@ struct TestStructureBig {
     UInt32 param2;
 }
 
-const UInt32 TestStringSize = 5120;
-typedef string<TestStringSize> TestString;
+struct TestStructureStr {
+    TestString param1;
+    TestString param2;
+}
 
 interface
 {

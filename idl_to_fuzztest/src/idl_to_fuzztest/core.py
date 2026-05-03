@@ -1,459 +1,291 @@
 import json
-import logging
-from typing import Any, Dict, List, Optional
+import re
+from typing import Any, Dict, List, Optional, Tuple
 
-# Настройка логирования
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
+# Mapping basic types to their mutators
+BASIC_TYPE_MUTATORS = {
+    "UInt8": "fuzztest::Arbitrary<uint8_t>()",
+    "UInt16": "fuzztest::Arbitrary<uint16_t>()",
+    "UInt32": "fuzztest::Arbitrary<uint32_t>()",
+    "UInt64": "fuzztest::Arbitrary<uint64_t>()",
+    "Int8": "fuzztest::Arbitrary<int8_t>()",
+    "Int16": "fuzztest::Arbitrary<int16_t>()",
+    "Int32": "fuzztest::Arbitrary<int32_t>()",
+    "Int64": "fuzztest::Arbitrary<int64_t>()",
+    "Float": "fuzztest::Arbitrary<float>()",
+    "Double": "fuzztest::Arbitrary<double>()",
+    "Bool": "fuzztest::Arbitrary<bool>()",
+    "Byte": "fuzztest::Arbitrary<uint8_t>()",
+}
 
 
-def generate_header(input_files: list[str]) -> str:
-    """
-    Generate C++ header with fuzztest mutators from IDL JSON files.
-    Output parameters are completely ignored.
-    """
-    if not input_files:
-        logger.error("No input files provided")
-        return "// Error: No input files\n"
+class IDLParser:
+    """Parses IDL JSON and generates mutators with typedef and const resolution."""
 
-    content = []
-    content.append("// Generated header with FuzzTest mutators for IDL types")
-    content.append("// Output parameters are ignored")
-    content.append("#pragma once\n")
-    content.append("#include <fuzztest/fuzztest.h>")
-    content.append("#include <fuzztest/domain.h>")
-    content.append("")
-    content.append("#include <cstdint>")
-    content.append("#include <string>")
-    content.append("#include <vector>")
+    def __init__(self, json_data: Dict[str, Any]):
+        self.contents = json_data["contents"]
+        self.package = self.contents["name"]
+        self.entries = self.contents.get("entries", [])
+        self.interface = self.contents.get("interface", {})
 
-    content.append("")
-    content.append(f"template <typename T>")
-    content.append(f"auto GetDefaultMutator();")
-    content.append("")
+        # Cache for generated mutators
+        self.mutator_cache: Dict[str, str] = {}
 
-    content.append("")
-    content.append(f"template <typename T, size_t n>")
-    content.append(f"auto GetDefaultArrayMutator(){{")
-    content.append(
-        "    return fuzztest::ContainerOf<std::vector<T>>(GetDefaultMutator<T>()).WithMaxSize(n);"
-    )
-    content.append("}")
-    content.append("")
+        # Type resolution registries
+        self.type_registry: Dict[str, Any] = {}  # struct definitions
+        self.typedef_registry: Dict[str, Dict[str, Any]] = {}  # typedef definitions
+        self.const_registry: Dict[str, Any] = {}  # const definitions
 
-    content.append("")
-    content.append(f"template <size_t n>")
-    content.append(f"auto GetDefaultStringMutator() {{")
-    content.append("    return fuzztest::String().WithMaxSize(n);")
-    content.append("}")
-    content.append("")
+        self._build_type_registry()
 
-    content.append("")
-    content.append(f"template <size_t n>")
-    content.append(f"auto GetDefaultBytesMutator() {{")
-    content.append(
-        "    return fuzztest::ContainerOf<std::vector<uint8_t>>(fuzztest::Arbitrary<uint8_t>()).WithMaxSize(n);"
-    )
-    content.append("}")
-    content.append("")
+    def _build_type_registry(self):
+        """Build registries of all defined types, typedefs, and constants."""
+        for entry in self.entries:
+            kind = entry["kind"]
+            name = entry["name"]
 
-    # Обрабатываем каждый входной файл
-    for file_path in input_files:
+            if kind == "struct":
+                self.type_registry[name] = entry
+            elif kind == "typedef":
+                self.typedef_registry[name] = entry
+            elif kind == "const":
+                self.const_registry[name] = entry
+
+    def _resolve_const_value(self, const_name: str) -> Any:
+        """
+        Resolve a constant value by name.
+        Returns the value if found, otherwise returns the name itself.
+        """
+        if const_name in self.const_registry:
+            return self.const_registry[const_name]["value"]
+
+        # Try to parse as numeric value
         try:
-            with open(file_path, "r", encoding="utf-8") as f:
-                data = json.load(f)
-
-            # Извлекаем информацию о модуле
-            module_name = extract_module_name(data)
-            namespace = f"kosipc::stdcpp::{module_name}"
-
-            content.append(f"// Generated from: {file_path}")
-
-            # Генерируем forward declarations для структур
-
-            # Генерируем мутаторы для каждого типа
-            generate_mutators_for_types(data, content, namespace)
-
-            logger.info(f"Successfully processed {file_path}")
-
-        except json.JSONDecodeError as e:
-            logger.error(f"Invalid JSON in {file_path}: {e}")
-            content.append(f"// Error: Invalid JSON in {file_path}\n")
-        except Exception as e:
-            logger.error(f"Error processing {file_path}: {e}")
-            content.append(f"// Error processing {file_path}: {e}\n")
-
-    return "\n".join(content)
-
-
-def extract_module_name(data: Dict[str, Any]) -> str:
-    """Extract module name from JSON."""
-    contents = data.get("contents", {})
-    full_name = contents.get("name", "")
-    # Extract last part after dot
-    parts = full_name.split(".")
-    return "".join(parts[:-1]) if parts else "unknown"
-
-
-def extract_structs(data: Dict[str, Any]) -> List[Dict[str, Any]]:
-    """Extract all struct definitions from JSON."""
-    structs = []
-    contents = data.get("contents", {})
-    entries = contents.get("entries", [])
-
-    for entry in entries:
-        if entry.get("kind") == "struct":
-            structs.append(
-                {
-                    "name": entry.get("name"),
-                    "fields": entry.get("fields", []),
-                    "static_size": entry.get("static_size", 0),
-                }
-            )
-
-    return structs
-
-
-def extract_typedefs(data: Dict[str, Any]) -> List[Dict[str, Any]]:
-    """Extract all typedef definitions from JSON."""
-    typedefs = []
-    contents = data.get("contents", {})
-    entries = contents.get("entries", [])
-
-    for entry in entries:
-        if entry.get("kind") == "typedef":
-            typedefs.append({"name": entry.get("name"), "type": entry.get("type", {})})
-
-    return typedefs
-
-
-def extract_constants(data: Dict[str, Any]) -> List[Dict[str, Any]]:
-    """Extract all constants from JSON."""
-    constants = []
-    contents = data.get("contents", {})
-    entries = contents.get("entries", [])
-
-    for entry in entries:
-        if entry.get("kind") == "const":
-            constants.append(
-                {
-                    "name": entry.get("name"),
-                    "type": entry.get("type", {}),
-                    "value": entry.get("value"),
-                }
-            )
-
-    return constants
-
-
-def generate_mutators_for_types(
-    data: Dict[str, Any], content: List[str], namespace: str
-):
-    """Generate fuzztest mutators for all types."""
-
-    # Генерируем мутаторы для структур
-    structs = extract_structs(data)
-    for struct_info in structs:
-        generate_struct_mutator(struct_info, content, namespace)
-
-    # Генерируем мутаторы для typedef
-    typedefs = extract_typedefs(data)
-    for typedef_info in typedefs:
-        generate_typedef_mutator(typedef_info, content, namespace)
-
-    # Генерируем мутаторы для констант
-    constants = extract_constants(data)
-    for const_info in constants:
-        generate_constant_mutator(const_info, content, namespace)
-
-    # Генерируем мутаторы для input параметров интерфейса
-    generate_interface_mutators(data, content, namespace)
-
-
-def get_cpp_type(idl_type: Dict[str, Any]) -> str:
-    """Convert IDL type to C++ type."""
-    kind = idl_type.get("kind")
-
-    if kind == "basic_type":
-        basic_type = idl_type.get("basic_type")
-        type_map = {
-            "SInt8": "int8_t",
-            "SInt16": "int16_t",
-            "SInt32": "int32_t",
-            "SInt64": "int64_t",
-            "UInt8": "uint8_t",
-            "UInt16": "uint16_t",
-            "UInt32": "uint32_t",
-            "UInt64": "uint64_t",
-            "UIntSize": "size_t",
-            "UIntPtr": "uintptr_t",
-        }
-        return type_map.get(basic_type, "uint32_t")
-
-    elif kind == "string":
-        max_size = idl_type.get("size", 1024)
-        return f"std::string"  # Используем std::string для UTF-8 строк
-
-    elif kind == "bytes":
-        max_size = idl_type.get("size", 1024)
-        return f"std::vector<uint8_t>"
-
-    elif kind == "array":
-        element_type = get_cpp_type(idl_type.get("element_type", {}))
-        size = idl_type.get("size", 0)
-        return f"std::array<{element_type}, {size}>"
-
-    elif kind == "typedef_type":
-        return idl_type.get("name", "UnknownType")
-
-    else:
-        logger.warning(f"Unknown type kind: {kind}")
-        return "uint32_t"
-
-
-def generate_struct_mutator(
-    struct_info: Dict[str, Any], content: List[str], namespace: str
-):
-    """Generate fuzztest mutator for a struct using StructOf."""
-    struct_name = struct_info["name"]
-    fields = struct_info["fields"]
-
-    content.append(f"// Mutator for struct {struct_name} using StructOf")
-    content.append(f"template<>")
-    content.append(f"auto GetDefaultMutator<{namespace}::{struct_name}>() {{")
-    content.append(f"    return fuzztest::StructOf<{namespace}::{struct_name}>(")
-
-    # Генерируем генераторы для каждого поля
-    for i, field in enumerate(fields):
-        field_name = field.get("name")
-        field_type = field.get("type", {})
-        generator = get_field_generator(field_type, field_name)
-
-        # Добавляем комментарий с именем поля для читаемости
-        content.append(
-            f"        {generator}{',' if i < len(fields) - 1 else ''} // {field_name}"
-        )
-
-    content.append(f"    );")
-    content.append(f"}}\n")
-
-
-def generate_union_mutator(
-    union_info: Dict[str, Any], content: List[str], namespace: str
-):
-    """Generate fuzztest mutator for a union (std::variant) using VariantOf."""
-    union_name = union_info["name"]
-    variants = union_info.get("variants", [])
-
-    content.append(f"// Mutator for union {union_name} using VariantOf")
-    content.append(f"template<>")
-    content.append(f"auto GetDefaultMutator<{namespace}::{union_name}>() {{")
-    content.append(f"    return fuzztest::VariantOf<{namespace}::{union_name}>(")
-
-    # Генерируем генераторы для каждого варианта
-    for i, variant in enumerate(variants):
-        variant_type = variant.get("type", {})
-        variant_name = variant.get("name", f"variant_{i}")
-        generator = get_field_generator(variant_type, variant_name)
-
-        # Добавляем комментарий с именем варианта для читаемости
-        content.append(
-            f"        {generator}{',' if i < len(variants) - 1 else ''} // {variant_name}"
-        )
-
-    content.append(f"    );")
-    content.append(f"}}\n")
-
-
-def get_field_generator(field_type: Dict[str, Any], field_name: str) -> str:
-    """Get fuzztest generator for a field type."""
-    kind = field_type.get("kind")
-
-    if kind == "basic_type":
-        basic_type = field_type.get("basic_type")
-        if "SInt" in basic_type or "UInt" in basic_type:
-            # Определяем диапазон на основе типа
-            return f"fuzztest::Arbitrary<{get_cpp_type(field_type)}>()"
-
-    elif kind == "string":
-        max_size = field_type.get("size", 1024)
-        return f"GetDefaultStringMutator<{max_size}>()"
-
-    elif kind == "bytes":
-        max_size = field_type.get("size", 1024)
-        return f"GetDefaultBytesMutator<{max_size}>()"
-
-    elif kind == "array":
-        element_type = field_type.get("element_type", {})
-        size = field_type.get("size", 0)
-        elem_gen = get_field_generator(element_type, "element")
-        return f"fuzztest::ArrayOf({size}, {elem_gen})"
-
-    elif kind == "type_definition":
-        type_name = field_type.get("name", {})
-        type_namespace = "::".join(field_type.get("package", {}).split(".")[:-1])
-        return f"GetDefaultMutator<kosipc::stdcpp::{type_namespace}::{type_name}>()"
-
-    # По умолчанию
-    return "GetDefaultBytesMutator<>()"
-
-
-def get_min_value(basic_type: str) -> str:
-    """Get minimum value for basic type."""
-    if "UInt" in basic_type:
-        return "0"
-    elif "SInt8" in basic_type:
-        return "-128"
-    elif "SInt16" in basic_type:
-        return "-32768"
-    elif "SInt32" in basic_type:
-        return "-2147483648"
-    elif "SInt64" in basic_type:
-        return "-9223372036854775808LL"
-    return "0"
-
-
-def get_max_value(basic_type: str) -> str:
-    """Get maximum value for basic type."""
-    if "UInt8" in basic_type:
-        return "255"
-    elif "UInt16" in basic_type:
-        return "65535"
-    elif "UInt32" in basic_type:
-        return "4294967295U"
-    elif "UInt64" in basic_type:
-        return "18446744073709551615ULL"
-    elif "SInt8" in basic_type:
-        return "127"
-    elif "SInt16" in basic_type:
-        return "32767"
-    elif "SInt32" in basic_type:
-        return "2147483647"
-    elif "SInt64" in basic_type:
-        return "9223372036854775807LL"
-    elif "UIntSize" in basic_type or "UIntPtr" in basic_type:
-        return "SIZE_MAX"
-    return "1000"
-
-
-def generate_typedef_mutator(
-    typedef_info: Dict[str, Any], content: List[str], namespace: str
-):
-    """Generate fuzztest mutator for a typedef."""
-    pass
-    # typedef_name = typedef_info["name"]
-    # original_type = typedef_info["type"]
-    # cpp_type = get_cpp_type(original_type)
-
-    # content.append(f"// Mutator for typedef {typedef_name}")
-    # content.append(f"template <>")
-    # content.append(f"auto fuzztest::Arbitrary<{namespace}::{typedef_name}>() {{")
-    # content.append(f"        return fuzztest::Map(")
-    # content.append(
-    #     f"            []({cpp_type} value) {{ return static_cast<{typedef_name}>(value); }},"
-    # )
-    # content.append(f"            fuzztest::Arbitrary<{cpp_type}>()")
-    # content.append(f"        );")
-    # content.append(f"}};\n")
-
-
-def generate_constant_mutator(
-    const_info: Dict[str, Any], content: List[str], namespace: str
-):
-    """Generate fuzztest mutator for a constant."""
-    const_name = const_info["name"]
-    const_type = const_info["type"]
-    const_value = const_info["value"]
-    cpp_type = get_cpp_type(const_type)
-
-    content.append(f"// Constant {const_name}")
-    content.append(f"constexpr {cpp_type} {const_name} = {const_value};")
-    content.append(f"// Mutator for constant {const_name}")
-    content.append(f"auto {const_name}Generator() {{")
-    content.append(f"    return fuzztest::Just({const_name});")
-    content.append(f"}}\n")
-
-
-def generate_interface_mutators(
-    data: Dict[str, Any], content: List[str], namespace: str
-):
-    """Generate mutators for input parameters of interface methods only."""
-    interface = data.get("contents", {}).get("interface")
-    if not interface:
-        return
-
-    methods = interface.get("methods", [])
-
-    for method in methods:
-        method_name = method.get("name")
-        parameters = method.get("parameters", [])
-
-        # Фильтруем только input параметры
-        input_params = [p for p in parameters if p.get("direction") == "input"]
-
-        if input_params:
-            content.append(
-                f"// Mutator for {method_name} input parameters (output parameters ignored)"
-            )
-
-            # Генерируем структуру только для input параметров
-            param_struct_name = f"{method_name}InputParams"
-            content.append(f"struct {param_struct_name} {{")
-            for param in input_params:
-                param_name = param.get("name")
-                param_type = param.get("type", {})
-                cpp_type = get_cpp_type(param_type)
-                content.append(f"    {cpp_type} {param_name};")
-            content.append(f"}};\n")
-
-            # Генерируем мутатор для структуры input параметров
-            content.append(f"template <>")
-            content.append(f"auto GetDefaultMutator<{param_struct_name}>() {{")
-
-            param_generators = []
-            for param in input_params:
-                param_type = param.get("type", {})
-                generator = get_field_generator(param_type, param.get("name"))
-                param_generators.append(generator)
-
-            if param_generators:
-                content.append(f"    return fuzztest::StructOf<{param_struct_name}>(")
-                param_types = [get_cpp_type(p.get("type", {})) for p in input_params]
-                param_names = [p.get("name") for p in input_params]
-                # content.append(
-                #     f"            []({', '.join(param_types)} {', '.join(param_names)}) {{"
-                # )
-                # content.append(
-                #     f"                return {param_struct_name}{{{', '.join(param_names)}}};"
-                # )
-                # content.append(f"            }},")
-                for i, gen in enumerate(param_generators):
-                    content.append(
-                        f"        {gen}{',' if i + 1 < len(param_generators) else ''}"
-                    )
-                content.append(f"    );")
-            else:
-                content.append(
-                    f"        return fuzztest::Just({param_struct_name}{{}});"
-                )
-
-            # content.append(f"    }}")
-            content.append(f"}};")
-            content.append("")
-
-            # Добавляем отдельную функцию-генератор для простоты использования
-            content.append(
-                f"// Convenience generator for {method_name} input parameters"
-            )
-            content.append(f"auto {method_name}InputGenerator() {{")
-            content.append(f"    return fuzztest::Arbitrary<{param_struct_name}>();")
-            content.append(f"}}\n")
-
-            logger.info(
-                f"Generated mutator for {method_name} with {len(input_params)} input parameters"
-            )
+            return int(const_name)
+        except ValueError:
+            pass
+
+        # Return as is if can't resolve
+        return const_name
+
+    def _resolve_typedef(self, type_name: str) -> Dict[str, Any]:
+        """
+        Recursively resolve typedef to its underlying type.
+        Handles nested typedefs and constant references.
+        """
+        if type_name not in self.typedef_registry:
+            return None
+
+        typedef_entry = self.typedef_registry[type_name]
+        underlying_type = typedef_entry["type"]
+
+        # If it's a type_definition (reference to another typedef), resolve recursively
+        if underlying_type["kind"] == "type_definition":
+            referenced_name = underlying_type["name"]
+            return self._resolve_typedef(referenced_name)
+
+        # For string types, try to resolve size from constants
+        if underlying_type["kind"] == "string":
+            size = underlying_type.get("size", 0)
+
+            # If size is a string (reference to constant), try to resolve it
+            if isinstance(size, str):
+                resolved_size = self._resolve_const_value(size)
+                underlying_type = underlying_type.copy()
+                underlying_type["size"] = resolved_size
+
+            return underlying_type
+
+        # For other types, return as is
+        return underlying_type
+
+    def _get_fully_qualified_name(
+        self, name: str, package: Optional[str] = None
+    ) -> str:
+        """Get fully qualified C++ type name."""
+        if package:
+            cpp_package = package.replace(".", "::")
+            return f"kosipc::stdcpp::{cpp_package}::{name}"
         else:
-            content.append(
-                f"// Method {method_name} has no input parameters (all outputs), skipping\n"
-            )
-            logger.info(f"Skipping {method_name} - no input parameters")
+            cpp_package = self.package.replace(".", "::")
+            return f"kosipc::stdcpp::{cpp_package}::{name}"
+
+    def _get_mutator_for_type(self, type_info: Dict[str, Any]) -> str:
+        """Recursively generate mutator for a given type, resolving typedefs."""
+        kind = type_info["kind"]
+
+        if kind == "basic_type":
+            basic_type = type_info["basic_type"]
+            if basic_type in BASIC_TYPE_MUTATORS:
+                return BASIC_TYPE_MUTATORS[basic_type]
+            else:
+                raise ValueError(f"Unknown basic type: {basic_type}")
+
+        elif kind == "type_definition":
+            type_name = type_info["name"]
+            package = type_info.get("package", self.package)
+
+            # Check if this is a typedef reference
+            resolved_type = self._resolve_typedef(type_name)
+            if resolved_type:
+                # Generate mutator based on resolved underlying type
+                return self._get_mutator_for_type(resolved_type)
+            else:
+                # It's a struct type
+                return f"GetDefaultMutator<{self._get_fully_qualified_name(type_name, package)}>()"
+
+        elif kind == "string":
+            size = type_info.get("size", 0)
+
+            # Resolve size if it's a constant reference
+            if isinstance(size, str):
+                size = self._resolve_const_value(size)
+
+            if size and size > 0:
+                return f"fuzztest::Arbitrary<std::string>().WithMaxSize({size})"
+            else:
+                return "fuzztest::Arbitrary<std::string>()"
+
+        elif kind == "array":
+            element_mutator = self._get_mutator_for_type(type_info["element_type"])
+            size = type_info.get("size", 0)
+
+            if isinstance(size, str):
+                size = self._resolve_const_value(size)
+
+            if size and size > 0:
+                return f"fuzztest::ArrayOf({element_mutator}).WithSize({size})"
+            else:
+                return f"fuzztest::ContainerOf<std::vector>({element_mutator})"
+
+        elif kind == "vector":
+            element_mutator = self._get_mutator_for_type(type_info["element_type"])
+            max_size = type_info.get("max_size", 0)
+
+            if isinstance(max_size, str):
+                max_size = self._resolve_const_value(max_size)
+
+            if max_size and max_size > 0:
+                return f"fuzztest::VectorOf({element_mutator}).WithMaxSize({max_size})"
+            else:
+                return f"fuzztest::VectorOf({element_mutator})"
+
+        elif kind == "optional":
+            inner_mutator = self._get_mutator_for_type(type_info["inner_type"])
+            return f"fuzztest::OptionalOf({inner_mutator})"
+
+        else:
+            raise ValueError(f"Unknown type kind: {kind}")
+
+    def _generate_struct_mutator(
+        self, struct_name: str, fields: List[Dict[str, Any]]
+    ) -> str:
+        """Generate mutator for struct type using StructOf."""
+        fully_qualified = self._get_fully_qualified_name(struct_name)
+
+        field_mutators = []
+        for field in fields:
+            mutator = self._get_mutator_for_type(field["type"])
+            # Add comment showing the resolved type
+            field_mutators.append(f"        {mutator} /* {field['name']} */")
+
+        return f"""// Mutator for struct {struct_name}
+template<>
+auto GetDefaultMutator<{fully_qualified}>() {{
+    return fuzztest::StructOf<{fully_qualified}>(
+{",\n".join(field_mutators)}
+    );
+}}"""
+
+    def _generate_mutator_for_entry(self, entry: Dict[str, Any]) -> Optional[str]:
+        """Generate mutator function for a type entry."""
+        entry_name = entry["name"]
+        kind = entry["kind"]
+
+        if kind == "struct":
+            fields = entry.get("fields", [])
+            return self._generate_struct_mutator(entry_name, fields)
+
+        # Typedefs and constants don't need separate mutators
+        # They are resolved inline when used
+        return None
+
+    def _resolve_and_generate_mutator_description(self, type_name: str) -> str:
+        """
+        Generate a human-readable description of how a type is resolved.
+        Useful for debugging.
+        """
+        if type_name in self.typedef_registry:
+            typedef = self.typedef_registry[type_name]
+            underlying = self._resolve_typedef(type_name)
+
+            if underlying["kind"] == "string":
+                size = underlying.get("size", "unknown")
+                return f"// {type_name} -> string<{size}>"
+            elif underlying["kind"] == "basic_type":
+                return f"// {type_name} -> {underlying['basic_type']}"
+            else:
+                return f"// {type_name} -> {underlying['kind']}"
+
+        return f"// {type_name}"
+
+    def generate_mutators(self) -> Tuple[List[str], List[str]]:
+        """
+        Generate all mutators.
+
+        Returns:
+            Tuple of (mutators, debug_info)
+            - mutators: List of generated C++ mutator functions
+            - debug_info: List of comments showing type resolution
+        """
+        mutators = []
+        debug_info = []
+
+        # First, document typedef resolutions
+        for typedef_name in self.typedef_registry:
+            description = self._resolve_and_generate_mutator_description(typedef_name)
+            if description:
+                debug_info.append(description)
+
+        # Then generate mutators for all struct types
+        for entry in self.entries:
+            if entry["kind"] == "struct":
+                entry_name = entry["name"]
+                if entry_name not in self.mutator_cache:
+                    mutator = self._generate_mutator_for_entry(entry)
+                    if mutator:
+                        self.mutator_cache[entry_name] = mutator
+                        mutators.append(mutator)
+
+        return mutators, debug_info
+
+
+def generate_fuzztest_from_json(json_data: Dict[str, Any]) -> str:
+    """
+    Main function to generate fuzztest mutators from IDL JSON data.
+
+    Args:
+        json_data: Parsed JSON dictionary containing IDL description
+
+    Returns:
+        String containing generated C++ mutator code
+    """
+    parser = IDLParser(json_data)
+    mutators, debug_info = parser.generate_mutators()
+
+    result_parts = []
+
+    # Add package info
+    package = json_data["contents"]["name"]
+    result_parts.append(f"// Auto-generated mutators for {package}")
+
+    # Add typedef resolution info
+    if debug_info:
+        result_parts.append("// Type definitions resolution:")
+        result_parts.extend(debug_info)
+        result_parts.append("")
+
+    # Add mutators
+    result_parts.extend(mutators)
+
+    return "\n".join(result_parts)
