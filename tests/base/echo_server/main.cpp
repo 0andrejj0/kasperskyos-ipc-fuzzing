@@ -20,7 +20,7 @@ struct EchoImpl
 {
     void Echo(const kosipc::stdcpp::test::TestStructureBig& input, kosipc::stdcpp::test::TestStructureBig& output) override
     {
-        // ERR(SERVER, "REQUEST: %u", input);
+        ERR(SERVER, "REQUEST: %u", input.param1.param1);
         if (input.param1.param1 > 100)
         {
             output = input;

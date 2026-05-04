@@ -14,4 +14,6 @@ kos::Result WaitCoverageReady();
 
 kos::Result Stop();
 
+void Print();
+
 } // namespace coverage_mapper

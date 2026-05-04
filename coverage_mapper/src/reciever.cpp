@@ -49,6 +49,14 @@ public:
         ready.notify_all();
     }
 
+    void Print()
+    {
+        // for (size_t i = 0; i < m_8bitCounters->GetSize(); ++i)
+        // {
+        //     std::cerr << "COVERAGE VALUE: " << (int)*((char*)m_8bitCounters->GetData() + i) << '\n';
+        // }
+    }
+
     std::optional<coverage_mapper::SharedMemoryBuffer> m_8bitCounters;
 };
 
@@ -112,6 +120,11 @@ kos::Result Stop()
     {
         thread.join();
     }
+}
+
+void Print()
+{
+    context.impl.Print();
 }
 
 } // namespace coverage_mapper

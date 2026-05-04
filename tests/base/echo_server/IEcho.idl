@@ -19,8 +19,9 @@ const UInt32 TestBytesSize = 277;
 typedef bytes<TestBytesSize> TestBytes;
 
 struct TestStructureStr {
-    TestString param1;
+    TestBytes param1;
     TestString param2;
+    sequence<TestStructure, 3> param3;
 }
 
 interface

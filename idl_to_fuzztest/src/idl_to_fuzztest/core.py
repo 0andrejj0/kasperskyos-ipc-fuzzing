@@ -162,11 +162,81 @@ class IDLParser:
             package = self._get_package_for_type(name)
 
         if package:
-            cpp_package = package.replace(".", "::")
+            # Убираем имя интерфейса из пакета (последнюю часть)
+            # Например "test.IEcho" -> "test"
+            package_parts = package.split(".")
+            # Если последняя часть пакета - это имя интерфейса, убираем её
+            if len(package_parts) > 1:
+                package_parts = package_parts[:-1]
+            cpp_package = "::".join(package_parts)
             return f"kosipc::stdcpp::{cpp_package}::{name}"
         else:
-            # Fallback: try to find in any package (should not happen)
             return f"kosipc::stdcpp::{name}"
+
+    def _get_interface_type(self, package: str, interface_name: str) -> str:
+        """Get fully qualified C++ interface type name."""
+        if package:
+            # Убираем имя интерфейса из пакета
+            package_parts = package.split(".")
+            if package_parts and package_parts[-1] == interface_name:
+                package_parts = package_parts[:-1]
+            cpp_package = "::".join(package_parts)
+            return f"kosipc::stdcpp::{cpp_package}::{interface_name}"
+        else:
+            return f"kosipc::stdcpp::{interface_name}"
+
+    def _get_type_name_for_cpp(self, type_info: Dict[str, Any]) -> str:
+        """Get C++ type name for a given type info."""
+        if not type_info or not isinstance(type_info, dict):
+            return "unknown"
+
+        kind = type_info.get("kind")
+
+        if kind == "basic_type":
+            basic_type = type_info.get("basic_type")
+            cpp_types = {
+                "UInt8": "uint8_t",
+                "UInt16": "uint16_t",
+                "UInt32": "uint32_t",
+                "UInt64": "uint64_t",
+                "SInt8": "int8_t",
+                "SInt16": "int16_t",
+                "SInt32": "int32_t",
+                "SInt64": "int64_t",
+                "Float": "float",
+                "Double": "double",
+                "Bool": "bool",
+                "Byte": "uint8_t",
+            }
+            return cpp_types.get(basic_type, "unknown")
+
+        elif kind == "type_definition":
+            type_name = type_info.get("name", "unknown")
+            package = type_info.get("package", None)
+            return self._get_fully_qualified_name(type_name, package)
+
+        elif kind == "string":
+            return "std::string"
+
+        elif kind == "bytes":
+            return "std::vector<std::byte>"
+
+        elif kind == "sequence":
+            item_type = type_info.get("item_type")
+            if item_type:
+                item_cpp_type = self._get_type_name_for_cpp(item_type)
+                return f"std::vector<{item_cpp_type}>"
+            return "std::vector<unknown>"
+
+        elif kind == "optional":
+            inner_type = type_info.get("inner_type")
+            if inner_type:
+                inner_cpp_type = self._get_type_name_for_cpp(inner_type)
+                return f"std::optional<{inner_cpp_type}>"
+            return "std::optional<unknown>"
+
+        else:
+            return "unknown"
 
     def _get_mutator_for_type(self, type_info: Dict[str, Any]) -> str:
         """Recursively generate mutator for a given type, resolving typedefs."""
@@ -245,45 +315,28 @@ class IDLParser:
             else:
                 return "fuzztest::Arbitrary<std::vector<std::byte>>()"
 
-        elif kind == "array":
-            element_type = type_info.get("element_type")
-            if not element_type:
-                raise ValueError(f"Missing 'element_type' in array: {type_info}")
-            element_mutator = self._get_mutator_for_type(element_type)
+        elif kind == "sequence":
+            # Sequence is like a fixed-size array in IDL
+            item_type = type_info.get("item_type")
+            if not item_type:
+                raise ValueError(f"Missing 'item_type' in sequence: {type_info}")
+
             size = type_info.get("size", 0)
 
+            # Resolve size if it's a constant reference
             if isinstance(size, str):
                 size = self._resolve_const_value(size)
 
+            # Ensure size is numeric
             try:
                 size = int(size) if size else 0
             except (ValueError, TypeError):
                 size = 0
 
-            if size and size > 0:
-                return f"fuzztest::ArrayOf({element_mutator}).WithSize({size})"
-            else:
-                return f"fuzztest::ContainerOf<std::vector>({element_mutator})"
+            # Get mutator for the item type
+            item_mutator = self._get_mutator_for_type(item_type)
 
-        elif kind == "vector":
-            element_type = type_info.get("element_type")
-            if not element_type:
-                raise ValueError(f"Missing 'element_type' in vector: {type_info}")
-            element_mutator = self._get_mutator_for_type(element_type)
-            max_size = type_info.get("max_size", 0)
-
-            if isinstance(max_size, str):
-                max_size = self._resolve_const_value(max_size)
-
-            try:
-                max_size = int(max_size) if max_size else 0
-            except (ValueError, TypeError):
-                max_size = 0
-
-            if max_size and max_size > 0:
-                return f"fuzztest::VectorOf({element_mutator}).WithMaxSize({max_size})"
-            else:
-                return f"fuzztest::VectorOf({element_mutator})"
+            return f"fuzztest::VectorOf({item_mutator}).WithMaxSize({size})"
 
         elif kind == "optional":
             inner_type = type_info.get("inner_type")
@@ -313,16 +366,238 @@ class IDLParser:
             # Add comment showing the resolved type
             field_mutators.append(f"        {mutator} /* {field_name} */")
 
-        # Add package comment
-        package_comment = f"// from package: {package}" if package else ""
-
-        return f"""// Mutator for struct {struct_name} {package_comment}
+        # Generate mutator (global, no namespace)
+        return f"""// Mutator for struct {struct_name}
 template<>
 auto GetDefaultMutator<{fully_qualified}>() {{
     return fuzztest::StructOf<{fully_qualified}>(
 {",\n".join(field_mutators)}
     );
 }}"""
+
+    def _generate_input_params_struct(
+        self,
+        package: str,
+        interface_name: str,
+        method_name: str,
+        parameters: List[Dict[str, Any]],
+    ) -> Tuple[str, str]:
+        """Generate InputParams struct for a method."""
+        # Build struct name
+        struct_name = f"{interface_name}_{method_name}_InputParams"
+
+        # Fully qualified name for mutator (just the struct name, since it's global)
+        fully_qualified = struct_name
+
+        # Generate fields (only input parameters)
+        struct_fields = []
+        for param in parameters:
+            param_name = param.get("name")
+            param_direction = param.get("direction")
+
+            # Only include input parameters
+            if param_direction == "input":
+                param_type = param.get("type")
+                if param_type:
+                    cpp_type = self._get_type_name_for_cpp(param_type)
+                    struct_fields.append(f"    {cpp_type} {param_name};")
+
+        # Generate mutator for this struct
+        field_mutators = []
+        for param in parameters:
+            param_name = param.get("name")
+            param_direction = param.get("direction")
+
+            if param_direction == "input":
+                param_type = param.get("type")
+                if param_type:
+                    mutator = self._get_mutator_for_type(param_type)
+                    field_mutators.append(f"        {mutator} /* {param_name} */")
+
+        # Generate the struct definition (global)
+        if struct_fields:
+            struct_code = f"""// Input parameters structure for {interface_name}::{method_name}
+struct {struct_name} {{
+{chr(10).join(struct_fields)}
+}};"""
+        else:
+            struct_code = f"""// Input parameters structure for {interface_name}::{method_name}
+struct {struct_name} {{
+    // No input parameters
+}};"""
+
+        # Generate mutator (global, no namespace)
+        if field_mutators:
+            mutator_code = f"""// Mutator for input params of {interface_name}::{method_name}
+template<>
+auto GetDefaultMutator<{fully_qualified}>() {{
+    return fuzztest::StructOf<{fully_qualified}>(
+{",\n".join(field_mutators)}
+    );
+}}"""
+        else:
+            mutator_code = f"""// Mutator for input params of {interface_name}::{method_name}
+template<>
+auto GetDefaultMutator<{fully_qualified}>() {{
+    return fuzztest::StructOf<{fully_qualified}>(
+        // No input parameters
+    );
+}}"""
+
+        return struct_code, mutator_code
+
+    def _generate_output_params_struct(
+        self,
+        package: str,
+        interface_name: str,
+        method_name: str,
+        parameters: List[Dict[str, Any]],
+    ) -> Tuple[str, str]:
+        """Generate OutputParams struct for a method."""
+        # Build struct name
+        struct_name = f"{interface_name}_{method_name}_OutputParams"
+
+        # Fully qualified name for mutator (just the struct name, since it's global)
+        fully_qualified = struct_name
+
+        # Generate fields (only output parameters)
+        struct_fields = []
+        for param in parameters:
+            param_name = param.get("name")
+            param_direction = param.get("direction")
+
+            # Only include output parameters
+            if param_direction == "output":
+                param_type = param.get("type")
+                if param_type:
+                    cpp_type = self._get_type_name_for_cpp(param_type)
+                    struct_fields.append(f"    {cpp_type} {param_name};")
+
+        # Generate mutator for this struct
+        field_mutators = []
+        for param in parameters:
+            param_name = param.get("name")
+            param_direction = param.get("direction")
+
+            if param_direction == "output":
+                param_type = param.get("type")
+                if param_type:
+                    mutator = self._get_mutator_for_type(param_type)
+                    field_mutators.append(f"        {mutator} /* {param_name} */")
+
+        # Generate the struct definition (global)
+        if struct_fields:
+            struct_code = f"""// Output parameters structure for {interface_name}::{method_name}
+struct {struct_name} {{
+{chr(10).join(struct_fields)}
+}};"""
+        else:
+            struct_code = f"""// Output parameters structure for {interface_name}::{method_name}
+struct {struct_name} {{
+    // No output parameters
+}};"""
+
+        # Generate mutator (global, no namespace)
+        if field_mutators:
+            mutator_code = f"""// Mutator for output params of {interface_name}::{method_name}
+template<>
+auto GetDefaultMutator<{fully_qualified}>() {{
+    return fuzztest::StructOf<{fully_qualified}>(
+{",\n".join(field_mutators)}
+    );
+}}"""
+        else:
+            mutator_code = f"""// Mutator for output params of {interface_name}::{method_name}
+template<>
+auto GetDefaultMutator<{fully_qualified}>() {{
+    return fuzztest::StructOf<{fully_qualified}>(
+        // No output parameters
+    );
+}}"""
+
+        return struct_code, mutator_code
+
+    def _generate_interface_variant(
+        self, package: str, interface_name: str, method_names: List[str]
+    ) -> str:
+        """Generate using statement with std::variant for all InputParams types."""
+        # Build variant types (just the struct names, since they are global)
+        variant_types = []
+        for method_name in method_names:
+            struct_name = f"{interface_name}_{method_name}_InputParams"
+            variant_types.append(struct_name)
+
+        # Create variant type
+        variant_type = f"std::variant<{', '.join(variant_types)}>"
+
+        # Build variant name (global)
+        variant_name = f"{interface_name}_AllInputParams"
+
+        # For mutator, also use just the variant name (global)
+        fully_qualified_variant = variant_name
+
+        # Build mutator for variant with all types
+        variant_mutator_parts = []
+        for variant_type_name in variant_types:
+            variant_mutator_parts.append(
+                f"        GetDefaultMutator<{variant_type_name}>()"
+            )
+
+        variant_mutator = ",\n".join(variant_mutator_parts)
+
+        variant_code = f"""// Variant containing all possible input parameter combinations for interface {interface_name}
+    using {variant_name} = {variant_type};
+
+    // Mutator for the variant
+    template<>
+    auto GetDefaultMutator<{fully_qualified_variant}>() {{
+        return fuzztest::VariantOf(
+    {variant_mutator}
+        );
+    }}"""
+
+        return variant_code
+
+    def _generate_output_variant(
+        self, package: str, interface_name: str, method_names: List[str]
+    ) -> str:
+        """Generate using statement with std::variant for all OutputParams types."""
+        # Build variant types (just the struct names, since they are global)
+        variant_types = []
+        for method_name in method_names:
+            struct_name = f"{interface_name}_{method_name}_OutputParams"
+            variant_types.append(struct_name)
+
+        # Create variant type
+        variant_type = f"std::variant<{', '.join(variant_types)}>"
+
+        # Build variant name (global)
+        variant_name = f"{interface_name}_AllOutputParams"
+
+        # For mutator, also use just the variant name (global)
+        fully_qualified_variant = variant_name
+
+        # Build mutator for variant with all types
+        variant_mutator_parts = []
+        for variant_type_name in variant_types:
+            variant_mutator_parts.append(
+                f"        GetDefaultMutator<{variant_type_name}>()"
+            )
+
+        variant_mutator = ",\n".join(variant_mutator_parts)
+
+        variant_code = f"""// Variant containing all possible output parameter combinations for interface {interface_name}
+    using {variant_name} = {variant_type};
+
+    // Mutator for the variant
+    template<>
+    auto GetDefaultMutator<{fully_qualified_variant}>() {{
+        return fuzztest::VariantOf(
+    {variant_mutator}
+        );
+    }}"""
+
+        return variant_code
 
     def _generate_mutator_for_entry(
         self, entry: Dict[str, Any], package: str
@@ -366,17 +641,89 @@ auto GetDefaultMutator<{fully_qualified}>() {{
 
         return f"// {type_name}"
 
-    def generate_mutators(self) -> Tuple[List[str], List[str]]:
+    def _generate_interface_dispatcher(
+        self, package: str, interface_name: str, methods: List[Dict[str, Any]]
+    ) -> str:
+        """Generate dispatcher function for an interface."""
+
+        # Build interface C++ type name - убираем лишний интерфейс из неймспейса
+        if package:
+            # Убираем имя интерфейса из пакета (последнюю часть)
+            package_parts = package.split(".")
+            if package_parts and package_parts[-1] == interface_name:
+                package_parts = package_parts[:-1]
+            cpp_package = "::".join(package_parts)
+            interface_type = f"kosipc::stdcpp::{cpp_package}::{interface_name}"
+        else:
+            interface_type = f"kosipc::stdcpp::{interface_name}"
+
+        # Build variant names
+        input_variant_name = f"{interface_name}_AllInputParams"
+        output_variant_name = f"{interface_name}_AllOutputParams"
+
+        # Generate switch cases
+        switch_cases = []
+        for idx, method in enumerate(methods):
+            method_name = method.get("name")
+            parameters = method.get("parameters", [])
+
+            # Build parameter list for method call in the exact order from JSON
+            call_params = []
+            for param in parameters:
+                param_name = param.get("name")
+                param_direction = param.get("direction")
+
+                if param_direction == "input":
+                    call_params.append(f"inputParams.{param_name}")
+                elif param_direction == "output":
+                    call_params.append(f"outputParams.{param_name}")
+
+            call_params_str = ", ".join(call_params) if call_params else ""
+
+            # Generate case - без const
+            case_code = f"""        case {idx}: {{
+                auto& inputParams = std::get<{idx}>(input_variant);
+                {interface_name}_{method_name}_OutputParams outputParams;
+                interface.{method_name}({call_params_str});
+                output_variant = outputParams;
+                break;
+            }}"""
+            switch_cases.append(case_code)
+
+        # Generate the dispatcher function - без const в параметрах
+        dispatcher_code = f"""// Dispatcher function for interface {interface_name}
+    // Calls the appropriate method based on the variant index
+    void Dispatch({interface_type}& interface,
+                  {input_variant_name}& input_variant,
+                  {output_variant_name}& output_variant) {{
+        switch (input_variant.index()) {{
+    {chr(10).join(switch_cases)}
+            default:
+                __builtin_unreachable();
+        }}
+    }}"""
+
+        return dispatcher_code
+
+    def generate_mutators(
+        self,
+    ) -> Tuple[
+        List[str], List[str], List[str], List[str], List[str], List[str], List[str]
+    ]:
         """
         Generate all mutators from all JSON files.
 
         Returns:
-            Tuple of (mutators, debug_info)
-            - mutators: List of generated C++ mutator functions
-            - debug_info: List of comments showing type resolution
+            Tuple of (mutators, debug_info, input_params_structs, output_params_structs,
+                      input_variants, output_variants, interface_dispatchers)
         """
         mutators = []
         debug_info = []
+        input_params_structs = []
+        output_params_structs = []
+        input_variants = []
+        output_variants = []
+        interface_dispatchers = []
         generated_structs = set()
 
         # First, document typedef resolutions from all packages
@@ -387,10 +734,15 @@ auto GetDefaultMutator<{fully_qualified}>() {{
 
         # Then generate mutators for all struct types across all JSON files
         for json_data in self.json_data_list:
-            contents = json_data["contents"]
-            package = contents["name"]
-            entries = contents.get("entries", [])
+            contents = json_data.get("contents", {})
+            if not contents:
+                continue
 
+            package = contents.get("name", "")
+            entries = contents.get("entries", [])
+            interface = contents.get("interface")
+
+            # Generate mutators for structs
             for entry in entries:
                 if entry.get("kind") == "struct":
                     entry_name = entry.get("name")
@@ -407,34 +759,101 @@ auto GetDefaultMutator<{fully_qualified}>() {{
                         mutators.append(mutator)
                         generated_structs.add(entry_name)
 
-        return mutators, debug_info
+            # Generate InputParams and OutputParams structs for each method (only if interface exists)
+            if interface and isinstance(interface, dict):
+                methods = interface.get("methods", [])
+                if methods:
+                    # Extract interface name from package
+                    interface_name = package.split(".")[-1] if package else "Unknown"
+                    method_names = []
+                    methods_list = []
+
+                    for method in methods:
+                        method_name = method.get("name")
+                        parameters = method.get("parameters", [])
+
+                        if method_name:
+                            method_names.append(method_name)
+                            methods_list.append(method)
+
+                            # Generate InputParams
+                            input_struct_code, input_mutator_code = (
+                                self._generate_input_params_struct(
+                                    package, interface_name, method_name, parameters
+                                )
+                            )
+                            input_params_structs.append(input_struct_code)
+                            input_params_structs.append(input_mutator_code)
+
+                            # Generate OutputParams
+                            output_struct_code, output_mutator_code = (
+                                self._generate_output_params_struct(
+                                    package, interface_name, method_name, parameters
+                                )
+                            )
+                            output_params_structs.append(output_struct_code)
+                            output_params_structs.append(output_mutator_code)
+
+                    # Generate input variant for this interface
+                    if method_names:
+                        input_variant_code = self._generate_interface_variant(
+                            package, interface_name, method_names
+                        )
+                        input_variants.append(input_variant_code)
+
+                        # Generate output variant for this interface
+                        output_variant_code = self._generate_output_variant(
+                            package, interface_name, method_names
+                        )
+                        output_variants.append(output_variant_code)
+
+                        # Generate dispatcher for this interface
+                        dispatcher_code = self._generate_interface_dispatcher(
+                            package, interface_name, methods_list
+                        )
+                        interface_dispatchers.append(dispatcher_code)
+
+        return (
+            mutators,
+            debug_info,
+            input_params_structs,
+            output_params_structs,
+            input_variants,
+            output_variants,
+            interface_dispatchers,
+        )
 
 
 def generate_fuzztest_from_json(json_data_list: List[Dict[str, Any]]) -> str:
     """
     Main function to generate fuzztest mutators from a list of IDL JSON data.
-
-    Later JSON files can reference types from earlier ones. The order matters
-    because types from previous files are available for resolution.
-
-    Args:
-        json_data_list: List of parsed JSON dictionaries containing IDL descriptions.
-                        First files should contain base types that may be imported by later files.
-
-    Returns:
-        String containing generated C++ mutator code
     """
     if not json_data_list:
         return "// No JSON data provided"
 
     parser = IDLParser(json_data_list)
-    mutators, debug_info = parser.generate_mutators()
+    (
+        mutators,
+        debug_info,
+        input_params_structs,
+        output_params_structs,
+        input_variants,
+        output_variants,
+        interface_dispatchers,
+    ) = parser.generate_mutators()
 
     result_parts = []
 
     # Add header
     result_parts.append("// Auto-generated mutators for IDL interfaces")
     result_parts.append("// Generated from multiple IDL files")
+    result_parts.append("")
+
+    # Add forward declaration of GetDefaultMutator
+    result_parts.append("// Forward declaration of GetDefaultMutator")
+    result_parts.append("template<typename T>")
+    result_parts.append("auto GetDefaultMutator();")
+    result_parts.append("")
 
     # Add package info
     packages = [data["contents"]["name"] for data in json_data_list]
@@ -447,10 +866,46 @@ def generate_fuzztest_from_json(json_data_list: List[Dict[str, Any]]) -> str:
         result_parts.extend(debug_info)
         result_parts.append("")
 
-    # Add mutators
+    # Add mutators for struct types
     if mutators:
         result_parts.extend(mutators)
+        result_parts.append("")
     else:
         result_parts.append("// No mutators generated")
+        result_parts.append("")
+
+    # Add input parameter structures
+    if input_params_structs:
+        result_parts.append("// Input parameter structures for interface methods")
+        result_parts.extend(input_params_structs)
+        result_parts.append("")
+
+    # Add output parameter structures
+    if output_params_structs:
+        result_parts.append("// Output parameter structures for interface methods")
+        result_parts.extend(output_params_structs)
+        result_parts.append("")
+
+    # Add input variants
+    if input_variants:
+        result_parts.append(
+            "// Input variants (all possible input parameter combinations)"
+        )
+        result_parts.extend(input_variants)
+        result_parts.append("")
+
+    # Add output variants
+    if output_variants:
+        result_parts.append(
+            "// Output variants (all possible output parameter combinations)"
+        )
+        result_parts.extend(output_variants)
+        result_parts.append("")
+
+    # Add interface dispatchers
+    if interface_dispatchers:
+        result_parts.append("// Interface dispatcher functions")
+        result_parts.extend(interface_dispatchers)
+        result_parts.append("")
 
     return "\n".join(result_parts)

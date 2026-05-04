@@ -11,6 +11,7 @@ set(ABSL_ENABLE_INSTALL ON)
 set(ABSL_BUILD_TESTING OFF)
 add_subdirectory(abseil-cpp)
 
+#set (CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -D__linux__=1")
 set(FUZZTEST_TESTING OFF)
 add_subdirectory(fuzztest)
 
