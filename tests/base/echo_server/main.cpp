@@ -18,16 +18,17 @@ namespace {
 struct EchoImpl
     : public kosipc::stdcpp::test::IEcho
 {
-    void Echo(const kosipc::stdcpp::test::TestStructureBig& input, kosipc::stdcpp::test::TestStructureBig& output) override
+    void Echo(const kosipc::stdcpp::test::TestStructure& input, kosipc::stdcpp::test::TestStructure& output) override
     {
-        ERR(SERVER, "REQUEST: %u", input.param1.param1);
-        if (input.param1.param1 > 100)
+        INFO(SERVER, "Echo request: %u %u", input.param1, input.param2);
+        if (input.param1 > 100)
         {
             output = input;
         }
         else
         {
             // error
+            ERR(SERVER, "Error happens");
             output = {};
         }
     }

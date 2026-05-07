@@ -1,30 +1,11 @@
 package test.IEcho
 
-import kl.core.Types
-
-const UInt32 TestStringSize = 5120;
-typedef string<TestStringSize> TestString;
-
 struct TestStructure {
     UInt64 param1;
     UInt32 param2;
 }
 
-struct TestStructureBig {
-    TestStructure param1;
-    UInt32 param2;
-}
-
-const UInt32 TestBytesSize = 277;
-typedef bytes<TestBytesSize> TestBytes;
-
-struct TestStructureStr {
-    TestBytes param1;
-    TestString param2;
-    sequence<TestStructure, 3> param3;
-}
-
 interface
 {
-    Echo(in TestStructureBig input, out TestStructureBig output);
+    Echo(in TestStructure input, out TestStructure output);
 }

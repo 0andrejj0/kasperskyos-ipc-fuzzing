@@ -214,6 +214,5 @@ def main():
         except OSError as e:
             logger.warning(f"Failed to remove temporary file {temp_file}: {e}")
 
-
 if __name__ == "__main__":
     main()

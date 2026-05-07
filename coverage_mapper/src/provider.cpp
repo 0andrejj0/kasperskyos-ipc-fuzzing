@@ -44,7 +44,7 @@ try
 {
     pc_guard_start = start;
     pc_guard_stop = stop;
-    ERR(COVERAGE, "Coverage init: %x, %x", (void*)start, (void*)stop);
+    INFO(COVERAGE, "Coverage init: %x, %x", (void*)start, (void*)stop);
 
     size_t coverageSize = stop - start;
     size_t shmemSize = AlignUp(coverageSize);
@@ -55,7 +55,12 @@ try
     std::optional<std::chrono::milliseconds> timeout = std::chrono::milliseconds{10'000};
     auto proxy = app.MakeProxy<kosipc::stdcpp::kl::ICoverageMapper>(kosipc::ConnectDcmPublication(std::nullopt, std::nullopt, std::nullopt, timeout, timeout));
 
-    proxy->Add_88BitCounters(shmem_8bit_counters->GetHandle(), shmem_8bit_counters->GetSize(), 0, coverageSize);
+    INFO(COVERAGE, "Proxy initialized");
+
+    proxy->AddInline8BitCounters(shmem_8bit_counters->GetHandle(), shmem_8bit_counters->GetSize(), 0, coverageSize);
+
+    INFO(COVERAGE, "Coverage sent successfuly");
+
     proxy->Ready();
 }
 catch (const std::exception& e)
@@ -68,12 +73,6 @@ void __sanitizer_cov_trace_pc_guard(uint32_t* guard)
 {
     size_t idx = guard - pc_guard_start;
     char* counter = (char*)shmem_8bit_counters->GetData() + idx;
-    if (*counter != 128)
+    if (*counter != 127)
         ++*counter;
-    // ERR(COVERAGE, "SET COVERAGE %d", idx);
-}
-
-__attribute__((constructor))
-void hello() {
-    std::cerr << "HELLO FROM PROVIDER\n";
 }

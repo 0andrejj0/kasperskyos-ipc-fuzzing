@@ -1,44 +1,25 @@
-#include "test/Fuzzer.edl.cpp.h"
+#include<kl/FuzztestRunner.edl.cpp.h>
 
-#include "generated_fuzztest.h"
+#include<kl/CoverageMapper.cdl.cpp.h>
+#include<component/coverage_mapper/coverage_mapper_reciever.h>
 
+#include<fuzztest/fuzztest.h>
+#include<fuzztest/googletest_adaptor.h>
+#include<fuzztest/googletest_fixture_adapter.h>
+#include<gtest/gtest.h>
 
-using namespace std::chrono_literals;
-
-class IEchoIpcFixture
-{
-public:
-    IEchoIpcFixture()
-        : m_app(kosipc::MakeApplicationPureClient())
-        , m_proxy(m_app.MakeProxy<kosipc::stdcpp::test::IEcho>(kosipc::ConnectDcmPublication()))
-    {
-    }
-
-    void Fuzz(IEcho_AllInputParams input)
-    {
-        IEcho_AllOutputParams output;
-
-        Dispatch(
-            *m_proxy,
-            input,
-            output);
-    }
-
-    kosipc::Application m_app;
-    kosipc::unique_ptr<kosipc::stdcpp::test::IEcho> m_proxy;
-};
-FUZZ_TEST_F(IEchoIpcFixture, Fuzz)
-    .WithDomains(GetDefaultMutator<IEcho_AllInputParams>());
+#include <kosipc/api.h>
+#include <kos/trace.h>
 
 int main(int argc, char** argv) {
+
+    INFO(FUZZTEST_RUNNER, "Starting fuzzing");
 
     kosipc::Application app = kosipc::MakeApplicationAutodetect();
     kosipc::components::Root root;
 
     coverage_mapper::RunCoverageMapperReciever(root.mapper, app);
     coverage_mapper::WaitCoverageReady();
-
-    std::cerr << "START\n";
 
     char* custom_argv[] = {
         "my_fuzzer",

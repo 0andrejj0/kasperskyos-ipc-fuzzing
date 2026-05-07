@@ -1,11 +1,11 @@
-.PHONY: init deps coverage_mapper generator tests clean
+.PHONY: init deps coverage_mapper runner tests clean
 
 default:
 	@echo "Доступные цели:"
 	@echo "  init"
 	@echo "  deps"
 	@echo "  coverage_mapper"
-	@echo "  generator"
+	@echo "  runner"
 	@echo "  tests"
 	@echo "  clean"
 
@@ -54,6 +54,24 @@ coverage_mapper:
 		../../coverage_mapper
 	cd .build/coverage_mapper && make	&& make install
 
+runner:
+	mkdir -p .build/runner
+	cd .build/runner && /opt/KasperskyOS-Community-Edition-Qemu-1.4.0.102/toolchain/bin/cmake \
+	    -DCMAKE_EXPORT_COMPILE_COMMANDS=ON \
+        -DCMAKE_TRY_COMPILE_TARGET_TYPE=STATIC_LIBRARY \
+        -DCMAKE_TOOLCHAIN_FILE=/opt/KasperskyOS-Community-Edition-Qemu-1.4.0.102/toolchain/share/toolchain-aarch64-kos-clang.cmake \
+        -DCMAKE_INSTALL_PREFIX=/opt/KasperskyOS-Community-Edition-Qemu-1.4.0.102/sysroot-aarch64-kos \
+        -DCMAKE_SYSROOT=/optKasperskyOS-Community-Edition-Qemu-1.4.0.102/sysroot-aarch64-kos \
+        -DCMAKE_FIND_ROOT_PATH=/opt/KasperskyOS-Community-Edition-Qemu-1.4.0.102/sysroot-aarch64-kos \
+        -DCMAKE_SYSROOT=/opt/KasperskyOS-Community-Edition-Qemu-1.4.0.102/sysroot-aarch64-kos \
+        -DCMAKE_FIND_ROOT_PATH_MODE_PROGRAM=NEVER \
+        -DCMAKE_FIND_ROOT_PATH_MODE_LIBRARY=BOTH \
+        -DCMAKE_FIND_ROOT_PATH_MODE_INCLUDE=BOTH \
+        -DCMAKE_FIND_ROOT_PATH_MODE_PACKAGE=BOTH \
+        -DCMAKE_BUILD_TYPE=Release \
+		../../runner
+	cd .build/runner && make && make install
+
 tests:
 	mkdir -p .build/tests
 	cd .build/tests && /opt/KasperskyOS-Community-Edition-Qemu-1.4.0.102/toolchain/bin/cmake \
@@ -69,6 +87,8 @@ tests:
         -DCMAKE_FIND_ROOT_PATH_MODE_INCLUDE=BOTH \
         -DCMAKE_FIND_ROOT_PATH_MODE_PACKAGE=BOTH \
         -DCMAKE_BUILD_TYPE=Release \
+        -DSYSROOT=/opt/KasperskyOS-Community-Edition-Qemu-1.4.0.102/sysroot-aarch64-kos \
+        -DSDK_PREFIX=/opt/KasperskyOS-Community-Edition-Qemu-1.4.0.102 \
 		../../tests
 	cd .build/tests && make
 

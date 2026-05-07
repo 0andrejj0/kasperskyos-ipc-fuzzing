@@ -846,18 +846,44 @@ def generate_fuzztest_from_json(json_data_list: List[Dict[str, Any]]) -> str:
 
     # Add header
     result_parts.append("// Auto-generated mutators for IDL interfaces")
-    result_parts.append("// Generated from multiple IDL files")
+    result_parts.append("")
+
+    include_list = [
+        "fuzztest/fuzztest.h",
+        "fuzztest/googletest_adaptor.h",
+        "fuzztest/googletest_fixture_adapter.h",
+        "gtest/gtest.h",
+        "",
+        "kl/CoverageMapper.cdl.cpp.h",
+        "component/coverage_mapper/coverage_mapper_reciever.h",
+        "",
+        "kosipc/application.h",
+        "kosipc/connect_dcm_publication.h",
+        "kosipc/api.h",
+        "",
+        "kos/trace.h",
+    ]
+
+    for include in include_list:
+        if include == "":
+            result_parts.append("")
+        else:
+            result_parts.append(f"#include<{include}>")
+    result_parts.append("")
+
+    packages = [data["contents"]["name"] for data in json_data_list]
+
+    for package in packages:
+        result_parts.append(f"#include<{package.replace('.', '/')}.idl.cpp.h>")
+    result_parts.append("")
+
+    result_parts.append(f"// Packages: {', '.join(packages)}")
     result_parts.append("")
 
     # Add forward declaration of GetDefaultMutator
     result_parts.append("// Forward declaration of GetDefaultMutator")
     result_parts.append("template<typename T>")
     result_parts.append("auto GetDefaultMutator();")
-    result_parts.append("")
-
-    # Add package info
-    packages = [data["contents"]["name"] for data in json_data_list]
-    result_parts.append(f"// Packages: {', '.join(packages)}")
     result_parts.append("")
 
     # Add typedef resolution info

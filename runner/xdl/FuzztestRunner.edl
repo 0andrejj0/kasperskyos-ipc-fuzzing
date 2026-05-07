@@ -1,0 +1,5 @@
+task class kl.FuzztestRunner
+
+components {
+    mapper: kl.CoverageMapper
+}
