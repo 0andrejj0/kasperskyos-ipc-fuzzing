@@ -1,7 +1,4 @@
-#include "test/Fuzzer.edl.cpp.h"
-
 #include "generated_fuzztest.h"
-
 
 using namespace std::chrono_literals;
 
@@ -29,36 +26,3 @@ public:
 };
 FUZZ_TEST_F(IEchoIpcFixture, Fuzz)
     .WithDomains(GetDefaultMutator<IEcho_AllInputParams>());
-
-int main(int argc, char** argv) {
-
-    kosipc::Application app = kosipc::MakeApplicationAutodetect();
-    kosipc::components::Root root;
-
-    coverage_mapper::RunCoverageMapperReciever(root.mapper, app);
-    coverage_mapper::WaitCoverageReady();
-
-    std::cerr << "START\n";
-
-    char* custom_argv[] = {
-        "my_fuzzer",
-        "--fork=false",
-        "--timeout=10",
-        "--runs=1",
-        "--verbose=1",
-        nullptr
-    };
-
-    int custom_argc = sizeof(custom_argv)/sizeof(custom_argv[0]) - 1;
-
-    testing::InitGoogleTest(&custom_argc, const_cast<char**>(custom_argv));
-
-    char** argvv = custom_argv;
-    GOOGLEFUZZTEST_REGISTER_FOR_GOOGLETEST(fuzztest::RunMode::kFuzz, &custom_argc, &argvv);
-
-    auto rc = RUN_ALL_TESTS();
-
-    coverage_mapper::Stop();
-
-    return rc;
-}

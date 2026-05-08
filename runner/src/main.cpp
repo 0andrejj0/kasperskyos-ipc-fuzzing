@@ -41,5 +41,5 @@ int main(int argc, char** argv) {
 
     coverage_mapper::Stop();
 
-    return rc;
+    _exit(rc);
 }

@@ -94,17 +94,19 @@ public:
     std::optional<coverage_mapper::SharedMemoryBuffer> m_8bitCounters;
 };
 
-struct
-{
+struct Context {
     CoverageMapperRecieverImpl impl;
     std::vector<kosipc::EventLoop> eventLoops;
     kosipc::ServiceList endpoints;
-
     std::optional<kosipc::DcmServicePublisher> publisher;
     std::optional<kosipc::SimpleConnectionAcceptor> acceptor;
-
     std::vector<std::thread> threads;
-} context;
+};
+
+static Context& GetContext() {
+    static Context context;
+    return context;
+}
 
 } // namespace
 
@@ -113,6 +115,8 @@ namespace coverage_mapper {
 kos::Result RunCoverageMapperReciever(kosipc::components::kl::CoverageMapper& component, kosipc::Application& app)
 {
     INFO(COVERAGE, "Starting coverage mapper receiver initialization");
+
+    auto& context = GetContext();
 
     component.mapper = &context.impl;
 
@@ -148,17 +152,20 @@ kos::Result Stop()
 {
     INFO(COVERAGE, "Stopping coverage mapper (cleanup in progress)");
 
+    auto& context = GetContext();
+
     for (size_t i = 0; i < context.eventLoops.size(); ++i)
     {
         INFO(COVERAGE, "Requesting stop for event loop %zu", i);
         context.eventLoops[i].RequestStop();
+        context.threads[i].join();
     }
 
     for (size_t i = 0; i < context.threads.size(); ++i)
     {
         if (context.threads[i].joinable())
         {
-            context.threads[i].join();
+            // context.threads[i].join();
         }
         else
         {
@@ -172,7 +179,8 @@ kos::Result Stop()
 
 void Print()
 {
-    INFO(COVERAGE, "Printing coverage mapper state");
+    auto& context = GetContext();
+
     context.impl.Print();
 }
 

@@ -1,6 +1,7 @@
 #include "test/Echo.edl.cpp.h"
 #include "test/IEcho.idl.cpp.h"
 
+#include <exception>
 #include <kosipc/application.h>
 #include <kosipc/event_loop.h>
 #include <kosipc/make_application.h>
@@ -20,8 +21,8 @@ struct EchoImpl
 {
     void Echo(const kosipc::stdcpp::test::TestStructure& input, kosipc::stdcpp::test::TestStructure& output) override
     {
-        INFO(SERVER, "Echo request: %u %u", input.param1, input.param2);
-        if (input.param1 > 100)
+        INFO(SERVER, "Echo request: %lu %u", input.param1, input.param2);
+        if (input.param1 > 10)
         {
             output = input;
         }
@@ -29,6 +30,7 @@ struct EchoImpl
         {
             // error
             ERR(SERVER, "Error happens");
+            std::terminate();
             output = {};
         }
     }
@@ -37,7 +39,7 @@ struct EchoImpl
 } // namespace
 
 int main() {
-    INFO(SERVER, "%s", "HELLO FROM ECHO SERVER)))\n");
+    INFO(SERVER, "%s", "Starting echo server\n");
 
     kosipc::Application app = kosipc::MakeApplicationAutodetect();
 
@@ -64,7 +66,7 @@ int main() {
         });
     }
 
-    ERR(SERVER, "%s", "ECHO SERVER STARTED)))");
+    ERR(SERVER, "%s", "Echo server started");
 
     for (auto& t : threads)
     {

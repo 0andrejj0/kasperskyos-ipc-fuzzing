@@ -38,10 +38,8 @@ target_include_directories(Fuzzer PRIVATE ${GENERATED_HEADER_DIR})
 
 target_link_libraries(Fuzzer
     PRIVATE
-        fuzztest::fuzztest_gtest_main
-        vfs::client
-        kosipc::kosipc
-        $<LINK_LIBRARY:WHOLE_ARCHIVE,coverage_mapper::reciever>)
+        fuzztest_runner::fuzztest_runner_main
+        vfs::client)
 set_target_properties (Fuzzer PROPERTIES vfs::entity_REPLACEMENT "")
 
 target_compile_options(Fuzzer PRIVATE

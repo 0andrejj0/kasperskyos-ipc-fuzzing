@@ -15,11 +15,11 @@ find_package(re2 REQUIRED)
 find_package(fuzztest REQUIRED)
 find_package(kosipc REQUIRED)
 
-add_library(fuzztest_runner
+add_library(fuzztest_runner_main
     STATIC
         src/main.cpp)
 
-target_link_libraries(fuzztest_runner
+target_link_libraries(fuzztest_runner_main
     PUBLIC
         fuzztest::fuzztest_gtest_main
         kosipc::kosipc
@@ -29,11 +29,11 @@ add_nk_edl (FUZZER_EDL "xdl/FuzztestRunner.edl"
             NK_MODULE  "kl"
             LANG       "CXX")
 
-add_dependencies (fuzztest_runner FUZZER_EDL)
-bind_nk_targets (fuzztest_runner FUZZER_EDL)
+add_dependencies (fuzztest_runner_main FUZZER_EDL)
+bind_nk_targets (fuzztest_runner_main FUZZER_EDL)
 
 export_targets(
     TARGETS
-        fuzztest_runner
+        fuzztest_runner_main
         FUZZER_EDL
     GENERATE_CONFIG_IN)
