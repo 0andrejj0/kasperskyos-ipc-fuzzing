@@ -1,0 +1,6 @@
+task class test.Echo
+
+endpoints
+{
+    echo : test.IEcho
+}

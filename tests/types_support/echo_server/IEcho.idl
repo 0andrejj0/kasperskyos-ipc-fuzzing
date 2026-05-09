@@ -1,0 +1,35 @@
+package test.IEcho
+
+import kl.core.Types
+
+typedef UInt32 TestUint32;
+typedef TestUint32 TestAnotherUint32;
+
+const UInt32 MaxDataSize = 8;
+struct TestStruct {
+    string<32> TestStructName;
+    UInt8 TestStructID;
+    bytes<MaxDataSize> TestStructData;
+}
+
+struct SimpleStruct {
+    Char c; // imported type
+}
+
+union TestUnion {
+    sequence<SimpleStruct, 1> optArray; // optional simple struct
+    UInt16 u16;
+}
+
+struct TestStructWithArray {
+    array<SInt32, 3> arr;
+}
+
+interface
+{
+    Method1(in SInt8 input); // just type
+    Method2(in TestAnotherUint32 input); // typedefed type (UInt32)
+    Method3(in TestStruct input);
+    Method4(in TestUnion input);
+    Method5(in TestStructWithArray input);
+}

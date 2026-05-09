@@ -1,0 +1,11 @@
+package test.IEcho
+
+struct TestStructure {
+    UInt64 param1;
+    UInt32 param2;
+}
+
+interface
+{
+    Echo(in TestStructure input, out TestStructure output);
+}

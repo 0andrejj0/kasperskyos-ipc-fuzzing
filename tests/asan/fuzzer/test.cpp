@@ -6,16 +6,14 @@
 //     IEchoIpcFixture()
 //         : m_app(kosipc::MakeApplicationPureClient())
 //         , m_proxy(m_app.MakeProxy<kosipc::stdcpp::test::IEcho>(kosipc::ConnectDcmPublication()))
-//     {}
+//     {
+//     }
 
 //     void Fuzz(IEcho_AllInputParams input)
 //     {
 //         IEcho_AllOutputParams output;
 
-//         Dispatch(
-//             *m_proxy,
-//             input,
-//             output);
+//         Dispatch(*m_proxy, input, output);
 //     }
 
 //     kosipc::Application m_app;

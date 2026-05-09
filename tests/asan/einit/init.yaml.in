@@ -1,0 +1,23 @@
+entities:
+  - name: test.Echo
+    path: EchoServer
+    env:
+      VFS_FILESYSTEM_BACKEND: "client:kl.VfsRamFs"
+    connections:
+    - target: kl.VfsRamFs
+      id: kl.VfsRamFs
+    - target: kl.core.DCM
+      id: kl.core.DCM
+@INIT_EchoServer_ENTITY_CONNECTIONS@
+  - name: test.Fuzzer
+    path: Fuzzer
+    env:
+      VFS_FILESYSTEM_BACKEND: "client:kl.VfsRamFs"
+    connections:
+    - target: kl.VfsRamFs
+      id: kl.VfsRamFs
+    - target: kl.core.DCM
+      id: kl.core.DCM
+@INIT_Fuzzer_ENTITY_CONNECTIONS@
+
+@INIT_EXTERNAL_ENTITIES@

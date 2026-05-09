@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.19)
 
-project (base_test)
+project (asan_test)
 
 include(platform)
 initialize_platform(FORCE_STATIC)

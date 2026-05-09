@@ -11,6 +11,11 @@
 #include <kosipc/api.h>
 #include <kos/trace.h>
 
+#include <thread>
+#include <chrono>
+
+using namespace std::chrono_literals;
+
 int main(int argc, char** argv) {
 
     INFO(FUZZTEST_RUNNER, "Starting fuzzing");
@@ -22,7 +27,7 @@ int main(int argc, char** argv) {
     coverage_mapper::WaitCoverageReady();
 
     char* custom_argv[] = {
-        "my_fuzzer",
+        "kos_ipc_fuzzer",
         "--fork=false",
         "--timeout=10",
         "--runs=1",
@@ -39,7 +44,11 @@ int main(int argc, char** argv) {
 
     auto rc = RUN_ALL_TESTS();
 
+    std::this_thread::sleep_for(1s);
+
+    coverage_mapper::Print();
+
     coverage_mapper::Stop();
 
-    _exit(rc);
+    return rc;
 }

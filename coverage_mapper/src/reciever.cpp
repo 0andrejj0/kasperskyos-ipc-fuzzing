@@ -26,13 +26,13 @@ class CoverageMapperRecieverImpl
 public:
     void AddInline8BitCounters(Handle shmem, uint64_t shmemSize, uint64_t coverageStart, uint64_t coverageSize) override
     {
-        INFO(COVERAGE, "Received 8-bit counters mapping: shmem=%p, shmemSize=%llu, coverageStart=0x%llx, coverageSize=%llu",
+        INFO(COVERAGE, "Received 8-bit counters mapping: shmem=%u, shmemSize=%lu, coverageStart=0x%lx, coverageSize=%lu",
              shmem, shmemSize, coverageStart, coverageSize);
 
         try
         {
             m_8bitCounters.emplace(shmem, shmemSize, coverageSize);
-            INFO(COVERAGE, "Shared memory buffer created successfully: size=%llu", coverageSize);
+            INFO(COVERAGE, "Shared memory buffer created successfully: size=%lu", coverageSize);
         }
         catch(const std::exception& e)
         {
@@ -104,8 +104,8 @@ struct Context {
 };
 
 static Context& GetContext() {
-    static Context context;
-    return context;
+    static Context* context = new Context();
+    return *context;
 }
 
 } // namespace
@@ -166,10 +166,6 @@ kos::Result Stop()
         if (context.threads[i].joinable())
         {
             // context.threads[i].join();
-        }
-        else
-        {
-            WARN(COVERAGE, "Thread %zu is not joinable", i);
         }
     }
 

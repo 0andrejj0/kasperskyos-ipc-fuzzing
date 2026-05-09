@@ -60,6 +60,9 @@ class IDLParser:
                 if kind == "struct":
                     self.type_registry[name] = entry
                     self.type_package[name] = package
+                elif kind == "union":
+                    self.type_registry[name] = entry
+                    self.type_package[name] = package
                 elif kind == "typedef":
                     self.typedef_registry[name] = entry
                     self.type_package[name] = package
@@ -228,12 +231,33 @@ class IDLParser:
                 return f"std::vector<{item_cpp_type}>"
             return "std::vector<unknown>"
 
-        elif kind == "optional":
-            inner_type = type_info.get("inner_type")
-            if inner_type:
-                inner_cpp_type = self._get_type_name_for_cpp(inner_type)
-                return f"std::optional<{inner_cpp_type}>"
-            return "std::optional<unknown>"
+        elif kind == "array":
+            # Array is a variable-size array with max size (like std::vector)
+            item_type = type_info.get("item_type")
+            if item_type:
+                item_cpp_type = self._get_type_name_for_cpp(item_type)
+                return f"std::vector<{item_cpp_type}>"
+            return "std::vector<unknown>"
+
+        elif kind == "array":
+            # Fixed-size array -> std::array
+            item_type = type_info.get("item_type")
+            size = type_info.get("size", 0)
+
+            # Resolve size if it's a constant reference
+            if isinstance(size, str):
+                size = self._resolve_const_value(size)
+
+            # Ensure size is numeric
+            try:
+                size = int(size) if size else 0
+            except (ValueError, TypeError):
+                size = 0
+
+            if item_type:
+                item_cpp_type = self._get_type_name_for_cpp(item_type)
+                return f"std::array<{item_cpp_type}, {size}>"
+            return f"std::array<unknown, {size}>"
 
         else:
             return "unknown"
@@ -290,7 +314,7 @@ class IDLParser:
                 size = 0
 
             if size and size > 0:
-                return f"fuzztest::Arbitrary<std::string>().WithMaxSize({size})"
+                return f"fuzztest::ContainerOf<std::string>(ascii_char).WithMaxSize({size})"
             else:
                 return "fuzztest::Arbitrary<std::string>()"
 
@@ -338,12 +362,32 @@ class IDLParser:
 
             return f"fuzztest::VectorOf({item_mutator}).WithMaxSize({size})"
 
-        elif kind == "optional":
-            inner_type = type_info.get("inner_type")
-            if not inner_type:
-                raise ValueError(f"Missing 'inner_type' in optional: {type_info}")
-            inner_mutator = self._get_mutator_for_type(inner_type)
-            return f"fuzztest::OptionalOf({inner_mutator})"
+        elif kind == "array":
+            # Fixed-size array -> std::array with exact size
+            item_type = type_info.get("item_type")
+            if not item_type:
+                raise ValueError(f"Missing 'item_type' in array: {type_info}")
+
+            size = type_info.get("size", 0)
+
+            # Resolve size if it's a constant reference
+            if isinstance(size, str):
+                size = self._resolve_const_value(size)
+
+            # Ensure size is numeric
+            try:
+                size = int(size) if size else 0
+            except (ValueError, TypeError):
+                size = 0
+
+            # Get mutator for the item type
+            item_mutator = self._get_mutator_for_type(item_type)
+
+            if size > 0:
+                return f"fuzztest::ArrayOf<{size}>({item_mutator})"
+            else:
+                # If size is 0, it's an empty array (unlikely, but handle gracefully)
+                return f"fuzztest::ArrayOf({item_mutator}).WithSize(0)"
 
         else:
             raise ValueError(f"Unknown type kind: {kind}")
@@ -372,6 +416,31 @@ template<>
 auto GetDefaultMutator<{fully_qualified}>() {{
     return fuzztest::StructOf<{fully_qualified}>(
 {",\n".join(field_mutators)}
+    );
+}}"""
+
+    def _generate_union_mutator(
+        self, union_name: str, variants: List[Dict[str, Any]], package: str
+    ) -> str:
+        """Generate mutator for union type using VariantOf."""
+        fully_qualified = self._get_fully_qualified_name(union_name, package)
+
+        variant_mutators = []
+        for idx, variant in enumerate(variants):
+            variant_type = variant.get("type")
+            if not variant_type:
+                raise ValueError(f"Missing 'type' in union variant: {variant}")
+
+            variant_name = variant.get("name", f"variant_{idx}")
+            mutator = self._get_mutator_for_type(variant_type)
+            variant_mutators.append(f"        {mutator} /* {variant_name} */")
+
+        # Generate mutator for union
+        return f"""// Mutator for union {union_name}
+template<>
+auto GetDefaultMutator<{fully_qualified}>() {{
+    return fuzztest::VariantOf(
+{",\n".join(variant_mutators)}
     );
 }}"""
 
@@ -612,6 +681,9 @@ auto GetDefaultMutator<{fully_qualified}>() {{
         if kind == "struct":
             fields = entry.get("fields", [])
             return self._generate_struct_mutator(entry_name, fields, package)
+        elif kind == "union":  # Add this
+            variants = entry.get("variants", [])
+            return self._generate_union_mutator(entry_name, variants, package)
 
         # Typedefs and constants don't need separate mutators
         # They are resolved inline when used
@@ -708,14 +780,21 @@ auto GetDefaultMutator<{fully_qualified}>() {{
     def generate_mutators(
         self,
     ) -> Tuple[
-        List[str], List[str], List[str], List[str], List[str], List[str], List[str]
+        List[str],
+        List[str],
+        List[str],
+        List[str],
+        List[str],
+        List[str],
+        List[str],
+        List[str],
     ]:
         """
         Generate all mutators from all JSON files.
 
         Returns:
             Tuple of (mutators, debug_info, input_params_structs, output_params_structs,
-                      input_variants, output_variants, interface_dispatchers)
+                      input_variants, output_variants, interface_dispatchers, test_fixtures)
         """
         mutators = []
         debug_info = []
@@ -724,7 +803,9 @@ auto GetDefaultMutator<{fully_qualified}>() {{
         input_variants = []
         output_variants = []
         interface_dispatchers = []
+        test_fixtures = []
         generated_structs = set()
+        generated_interfaces = set()
 
         # First, document typedef resolutions from all packages
         for typedef_name in self.typedef_registry:
@@ -744,7 +825,7 @@ auto GetDefaultMutator<{fully_qualified}>() {{
 
             # Generate mutators for structs
             for entry in entries:
-                if entry.get("kind") == "struct":
+                if entry.get("kind") in ("struct", "union"):
                     entry_name = entry.get("name")
                     if not entry_name:
                         continue
@@ -813,6 +894,14 @@ auto GetDefaultMutator<{fully_qualified}>() {{
                         )
                         interface_dispatchers.append(dispatcher_code)
 
+                        # Generate test fixture for this interface (only once per interface)
+                        if interface_name not in generated_interfaces:
+                            test_fixture_code = self._generate_test_fixture(
+                                package, interface_name
+                            )
+                            test_fixtures.append(test_fixture_code)
+                            generated_interfaces.add(interface_name)
+
         return (
             mutators,
             debug_info,
@@ -821,7 +910,55 @@ auto GetDefaultMutator<{fully_qualified}>() {{
             input_variants,
             output_variants,
             interface_dispatchers,
+            test_fixtures,
         )
+
+    def _generate_test_fixture(self, package: str, interface_name: str) -> str:
+        """Generate test fixture class for an interface."""
+
+        # Build interface C++ type name
+        if package:
+            package_parts = package.split(".")
+            if package_parts and package_parts[-1] == interface_name:
+                package_parts = package_parts[:-1]
+            cpp_package = "::".join(package_parts)
+            interface_type = f"kosipc::stdcpp::{cpp_package}::{interface_name}"
+        else:
+            interface_type = f"kosipc::stdcpp::{interface_name}"
+
+        # Build variant names
+        input_variant_name = f"{interface_name}_AllInputParams"
+        output_variant_name = f"{interface_name}_AllOutputParams"
+
+        # Generate fixture class
+        fixture_code = f"""// Fuzz test fixture for interface {interface_name}
+    class {interface_name}IpcFixture
+    {{
+    public:
+        {interface_name}IpcFixture()
+            : m_app(kosipc::MakeApplicationPureClient())
+            , m_proxy(m_app.MakeProxy<{interface_type}>(kosipc::ConnectDcmPublication()))
+        {{}}
+
+        void Fuzz({input_variant_name} input)
+        {{
+            {output_variant_name} output;
+
+            Dispatch(
+                *m_proxy,
+                input,
+                output);
+        }}
+
+        kosipc::Application m_app;
+        kosipc::unique_ptr<{interface_type}> m_proxy;
+    }};
+
+    FUZZ_TEST_F({interface_name}IpcFixture, Fuzz)
+        .WithDomains(GetDefaultMutator<{input_variant_name}>());
+    """
+
+        return fixture_code
 
 
 def generate_fuzztest_from_json(json_data_list: List[Dict[str, Any]]) -> str:
@@ -840,6 +977,7 @@ def generate_fuzztest_from_json(json_data_list: List[Dict[str, Any]]) -> str:
         input_variants,
         output_variants,
         interface_dispatchers,
+        test_fixtures,
     ) = parser.generate_mutators()
 
     result_parts = []
@@ -885,6 +1023,9 @@ def generate_fuzztest_from_json(json_data_list: List[Dict[str, Any]]) -> str:
     result_parts.append("template<typename T>")
     result_parts.append("auto GetDefaultMutator();")
     result_parts.append("")
+
+    # Char mutator for using in strings
+    result_parts.append("auto ascii_char = fuzztest::InRange<char>(0, 127);")
 
     # Add typedef resolution info
     if debug_info:
@@ -932,6 +1073,11 @@ def generate_fuzztest_from_json(json_data_list: List[Dict[str, Any]]) -> str:
     if interface_dispatchers:
         result_parts.append("// Interface dispatcher functions")
         result_parts.extend(interface_dispatchers)
+        result_parts.append("")
+
+    if test_fixtures:
+        result_parts.append("// Fuzz test fixtures")
+        result_parts.extend(test_fixtures)
         result_parts.append("")
 
     return "\n".join(result_parts)
