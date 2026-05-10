@@ -50,7 +50,7 @@ struct EchoImpl
     void Method1(int8_t input) override
     {
         INFO(SERVER, "Method1 request: %d", input);
-        // always OK
+        // OK
     }
 
     void Method2(uint32_t input) override
@@ -94,7 +94,7 @@ struct EchoImpl
 
     void Method5(const TestStructWithArray& input) override
     {
-         INFO(SERVER, "Method5 request: TestStructWithArray{[%d, %d, %d]}", input.arr[0], input.arr[1], input.arr[2]);
+        INFO(SERVER, "Method5 request: TestStructWithArray{[%d, %d, %d]}", input.arr[0], input.arr[1], input.arr[2]);
     }
 };
 

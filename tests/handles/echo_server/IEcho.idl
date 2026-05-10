@@ -1,0 +1,7 @@
+package test.IEcho
+
+interface
+{
+    Register(out Handle context);
+    Read(in Handle context);
+}

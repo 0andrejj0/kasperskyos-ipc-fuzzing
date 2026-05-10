@@ -180,4 +180,19 @@ void Print()
     context.impl.Print();
 }
 
+
+static char fake_coverage[100];
+void InitFakeCoverage()
+{
+    __sanitizer_cov_8bit_counters_init(fake_coverage, fake_coverage + sizeof(fake_coverage));
+}
+
+void AddFakeCoverage()
+{
+    for (size_t i = 0; i < 10; ++i)
+    {
+        fake_coverage[i] = 1;
+    }
+}
+
 } // namespace coverage_mapper

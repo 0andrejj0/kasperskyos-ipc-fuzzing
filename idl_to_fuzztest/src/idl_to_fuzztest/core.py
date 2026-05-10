@@ -231,13 +231,13 @@ class IDLParser:
                 return f"std::vector<{item_cpp_type}>"
             return "std::vector<unknown>"
 
-        elif kind == "array":
-            # Array is a variable-size array with max size (like std::vector)
-            item_type = type_info.get("item_type")
-            if item_type:
-                item_cpp_type = self._get_type_name_for_cpp(item_type)
-                return f"std::vector<{item_cpp_type}>"
-            return "std::vector<unknown>"
+        # elif kind == "array":
+        #     # Array is a variable-size array with max size (like std::vector)
+        #     item_type = type_info.get("item_type")
+        #     if item_type:
+        #         item_cpp_type = self._get_type_name_for_cpp(item_type)
+        #         return f"std::vector<{item_cpp_type}>"
+        #     return "std::vector<unknown>"
 
         elif kind == "array":
             # Fixed-size array -> std::array
@@ -258,6 +258,9 @@ class IDLParser:
                 item_cpp_type = self._get_type_name_for_cpp(item_type)
                 return f"std::array<{item_cpp_type}, {size}>"
             return f"std::array<unknown, {size}>"
+        
+        elif kind == "handle":
+            return "nk_handle_desc_t"
 
         else:
             return "unknown"
@@ -386,8 +389,10 @@ class IDLParser:
             if size > 0:
                 return f"fuzztest::ArrayOf<{size}>({item_mutator})"
             else:
-                # If size is 0, it's an empty array (unlikely, but handle gracefully)
                 return f"fuzztest::ArrayOf({item_mutator}).WithSize(0)"
+
+        elif kind == "handle":
+            return "GetDefaultMutator<nk_handle_desc_t>()"
 
         else:
             raise ValueError(f"Unknown type kind: {kind}")
@@ -752,14 +757,34 @@ auto GetDefaultMutator<{fully_qualified}>() {{
 
             call_params_str = ", ".join(call_params) if call_params else ""
 
+            # Get output handle parameters that need StoreHandle
+            output_handle_params = self._get_output_handle_params(parameters)
+            
+            # Generate StoreHandle calls for each output handle parameter
+            store_handle_calls = []
+            for handle_param in output_handle_params:
+                store_handle_calls.append(f"                StoreHandle(outputParams.{handle_param});")
+            
+            store_handles_str = "\n".join(store_handle_calls)
+
             # Generate case - без const
-            case_code = f"""        case {idx}: {{
-                auto& inputParams = std::get<{idx}>(input_variant);
-                {interface_name}_{method_name}_OutputParams outputParams;
-                interface.{method_name}({call_params_str});
-                output_variant = outputParams;
-                break;
-            }}"""
+            if store_handles_str:
+                case_code = f"""        case {idx}: {{
+                    auto& inputParams = std::get<{idx}>(input_variant);
+                    {interface_name}_{method_name}_OutputParams outputParams;
+                    interface.{method_name}({call_params_str});
+    {store_handles_str}
+                    output_variant = outputParams;
+                    break;
+                }}"""
+            else:
+                case_code = f"""        case {idx}: {{
+                    auto& inputParams = std::get<{idx}>(input_variant);
+                    {interface_name}_{method_name}_OutputParams outputParams;
+                    interface.{method_name}({call_params_str});
+                    output_variant = outputParams;
+                    break;
+                }}"""
             switch_cases.append(case_code)
 
         # Generate the dispatcher function - без const в параметрах
@@ -776,6 +801,56 @@ auto GetDefaultMutator<{fully_qualified}>() {{
     }}"""
 
         return dispatcher_code
+    
+    def _has_handle_type(self, type_info: Dict[str, Any]) -> bool:
+        """Check if a type is a handle or contains handles."""
+        if not isinstance(type_info, dict):
+            return False
+        
+        kind = type_info.get("kind")
+        
+        if kind == "handle":
+            return True
+        elif kind == "type_definition":
+            # Resolve typedef to check underlying type
+            type_name = type_info.get("name")
+            if type_name:
+                resolved = self._resolve_typedef(type_name)
+                if resolved:
+                    return self._has_handle_type(resolved)
+            return False
+        elif kind in ("struct", "union"):
+            # Check all fields/variants for handles
+            fields = type_info.get("fields", []) or type_info.get("variants", [])
+            for field in fields:
+                field_type = field.get("type")
+                if field_type and self._has_handle_type(field_type):
+                    return True
+            return False
+        elif kind == "sequence":
+            item_type = type_info.get("item_type")
+            if item_type:
+                return self._has_handle_type(item_type)
+            return False
+        elif kind == "array":
+            item_type = type_info.get("item_type")
+            if item_type:
+                return self._has_handle_type(item_type)
+            return False
+        
+        return False
+
+    def _get_output_handle_params(self, parameters: List[Dict[str, Any]]) -> List[str]:
+        """Get list of output parameter names that are handles."""
+        handle_params = []
+        for param in parameters:
+            param_direction = param.get("direction")
+            if param_direction == "output":
+                param_type = param.get("type")
+                param_name = param.get("name")
+                if param_type and self._has_handle_type(param_type):
+                    handle_params.append(param_name)
+        return handle_params
 
     def generate_mutators(
         self,
@@ -944,10 +1019,23 @@ auto GetDefaultMutator<{fully_qualified}>() {{
         {{
             {output_variant_name} output;
 
-            Dispatch(
-                *m_proxy,
-                input,
-                output);
+            try
+            {{
+                Dispatch(
+                    *m_proxy,
+                    input,
+                    output);
+            }}
+            catch(const std::runtime_error& e)
+            {{
+                std::string msg = e.what();
+                const std::string prefix = "Transport error";
+                
+                if (msg.size() >= prefix.size() && 
+                    msg.compare(0, prefix.size(), prefix) == 0) {{
+                    throw;
+                }}
+            }}
         }}
 
         kosipc::Application m_app;
@@ -992,6 +1080,9 @@ def generate_fuzztest_from_json(json_data_list: List[Dict[str, Any]]) -> str:
         "fuzztest/googletest_fixture_adapter.h",
         "gtest/gtest.h",
         "",
+        "testing/common.h",
+        "testing/handle_storage.h",
+        "",
         "kl/CoverageMapper.cdl.cpp.h",
         "component/coverage_mapper/coverage_mapper_reciever.h",
         "",
@@ -1016,12 +1107,6 @@ def generate_fuzztest_from_json(json_data_list: List[Dict[str, Any]]) -> str:
     result_parts.append("")
 
     result_parts.append(f"// Packages: {', '.join(packages)}")
-    result_parts.append("")
-
-    # Add forward declaration of GetDefaultMutator
-    result_parts.append("// Forward declaration of GetDefaultMutator")
-    result_parts.append("template<typename T>")
-    result_parts.append("auto GetDefaultMutator();")
     result_parts.append("")
 
     # Char mutator for using in strings

@@ -1,0 +1,64 @@
+# © 2025 AO Kaspersky Lab
+# Licensed under the MIT License
+
+# GENERATED FILE. DO NOT MODIFY.
+
+# The init.yaml file is used by the `einit` tool.
+# It lists all processes that need to be started after the OS is loaded.
+
+entities:
+
+- name: test.Fuzzer
+  task: test.Fuzzer
+  path: Fuzzer
+  connections:
+  - target: kl.VfsRamFs
+    id: kl.VfsRamFs
+  - target: kl.core.DCM
+    id: kl.core.DCM
+  env:
+    VFS_FILESYSTEM_BACKEND: client:kl.VfsRamFs
+    DISABLE_COVERAGE: 'YES'
+
+- name: logrr.LogrrServer
+  task: logrr.LogrrServer
+  path: LogrrServer
+  connections:
+  - target: kl.VfsRamFs
+    id: kl.VfsRamFs
+  - target: kl.core.DCM
+    id: kl.core.DCM
+  env:
+    VFS_FILESYSTEM_BACKEND: client:kl.VfsRamFs
+
+- name: kl.VfsRamFs
+  task: kl.VfsRamFs
+  path: VfsRamFs
+  connections:
+  - target: kl.EntropyEntity
+    id: kl.EntropyEntity
+  args:
+  - -l
+  - nodev /tmp ramfs 0
+  - -l
+  - devfs /dev devfs 0
+  env:
+    VFS_FILESYSTEM_BACKEND: server:kl.VfsRamFs
+
+- name: logrr.LogrrFsOutputChannel
+  task: logrr.LogrrFsOutputChannel
+  path: LogrrFsOutputChannel
+  connections:
+  - target: logrr.LogrrServer
+    id: LogrrLogrrServerOutputChannel
+  env:
+    VFS_FILESYSTEM_BACKEND: client:kl.VfsRamFs
+
+- name: kl.core.DCM
+  task: kl.core.DCM
+  path: dcm
+  dynamic_connection_manager: true
+
+- name: kl.EntropyEntity
+  task: kl.EntropyEntity
+  path: Entropy

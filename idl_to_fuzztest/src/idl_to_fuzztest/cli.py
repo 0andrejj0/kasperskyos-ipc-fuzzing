@@ -5,6 +5,9 @@ import os
 import subprocess
 import sys
 import tempfile
+import copy
+
+from typing import Dict, Any
 
 from idl_to_fuzztest.core import generate_fuzztest_from_json
 from idl_to_fuzztest.nk_driver import (
@@ -43,6 +46,29 @@ def find_idl_file(import_name, include_dirs):
         f"Import {import_name} not found in include directories: {include_dirs}"
     )
     return None
+
+
+def strip_interface_from_json(json_data: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Remove the 'interface' section from JSON data for imported IDL files.
+    This ensures that test fixtures and dispatchers are only generated for the target IDL file.
+
+    Args:
+        json_data: Parsed JSON dictionary from nk-driver
+
+    Returns:
+        JSON dictionary with interface removed (if present)
+    """
+    # Create a deep copy to avoid modifying the original
+    stripped_data = copy.deepcopy(json_data)
+    
+    # Check if contents exists and has interface
+    if "contents" in stripped_data and "interface" in stripped_data["contents"]:
+        # Remove the interface section
+        del stripped_data["contents"]["interface"]
+        logger.debug(f"Removed interface from {stripped_data['contents'].get('name', 'unknown')}")
+    
+    return stripped_data
 
 
 def main():
@@ -125,6 +151,9 @@ def main():
 
         processed_files.add(idl_file)
 
+        # Determine if this is the target file or an import
+        is_target_file = (idl_file == args.idl)
+
         try:
             logger.info(f"Converting {idl_file} to JSON...")
 
@@ -146,6 +175,12 @@ def main():
             # Read the generated JSON
             with open(temp_file_path, "r", encoding="utf-8") as f:
                 json_data = json.load(f)
+                
+                # For imported files (not the target), strip the interface section
+                if not is_target_file:
+                    logger.debug(f"Stripping interface from imported file: {idl_file}")
+                    json_data = strip_interface_from_json(json_data)
+                
                 json_data_list.append(json_data)
 
             logger.debug(f"Successfully converted {idl_file}")
@@ -181,7 +216,6 @@ def main():
     # Generate the header from all JSON data
     try:
         logger.debug("Generating fuzztest mutators from JSON data...")
-        # Call the updated function with the list of all JSON data
         result = generate_fuzztest_from_json(json_data_list)
         logger.debug("Header generation completed")
     except Exception as e:
@@ -199,7 +233,7 @@ def main():
             logger.debug(f"Created output directory: {output_dir}")
 
         with open(args.output, "w", encoding="utf-8") as f:
-            f.write(result)  # Write the generated string directly
+            f.write(result)
 
         logger.info(f"Successfully generated: {args.output}")
     except Exception as e:

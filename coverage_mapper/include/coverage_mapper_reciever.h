@@ -16,4 +16,8 @@ kos::Result Stop();
 
 void Print();
 
+void InitFakeCoverage();
+
+void AddFakeCoverage();
+
 } // namespace coverage_mapper

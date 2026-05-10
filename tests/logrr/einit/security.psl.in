@@ -1,0 +1,33 @@
+execute: kl.core.Execute
+ 
+use nk.base._
+
+use EDL Einit
+use EDL kl.core.Core
+use EDL kl.core.DCM
+
+use EDL logrr.LogrrServer
+use EDL logrr.LogrrFsOutputChannel
+use EDL test.Fuzzer
+
+@INIT_EXTERNAL_ENTITIES@
+
+execute {
+    grant ()
+}
+
+request {
+    grant ()
+}
+
+response {
+    grant ()
+}
+ 
+error {
+    grant ()
+}
+
+security {
+    grant ()
+}

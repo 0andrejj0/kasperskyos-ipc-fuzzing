@@ -3,8 +3,8 @@ SYSROOT := $(SDK_PREFIX)/sysroot-aarch64-kos
 TOOLCHAIN_FILE := $(SDK_PREFIX)/toolchain/share/toolchain-aarch64-kos-clang.cmake
 CMAKE := $(SDK_PREFIX)/toolchain/bin/cmake
 
-# TESTS := base asan ubsan types_support
-TESTS := types_support
+# TESTS := base asan ubsan types_support handles logrr
+TESTS := logrr
 TESTS_BUILD_DIR := .build/tests
 
 ARGS := -DCMAKE_EXPORT_COMPILE_COMMANDS=ON \

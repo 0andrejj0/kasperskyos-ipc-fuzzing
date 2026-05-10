@@ -13,6 +13,7 @@
 
 #include <thread>
 #include <chrono>
+#include <cstdlib>
 
 using namespace std::chrono_literals;
 
@@ -23,8 +24,31 @@ int main(int argc, char** argv) {
     kosipc::Application app = kosipc::MakeApplicationAutodetect();
     kosipc::components::Root root;
 
-    coverage_mapper::RunCoverageMapperReciever(root.mapper, app);
-    coverage_mapper::WaitCoverageReady();
+    // Check DISABLE_COVERAGE environment variable
+    const char* disable_coverage = std::getenv("DISABLE_COVERAGE");
+    bool coverage_enabled = true;
+    
+    if (disable_coverage != nullptr) {
+        std::string disable_value(disable_coverage);
+        // Check for common "true" values
+        if (disable_value == "1" || 
+            disable_value == "true" || 
+            disable_value == "TRUE" ||
+            disable_value == "yes" ||
+            disable_value == "YES") {
+            coverage_enabled = false;
+            INFO(FUZZTEST_RUNNER, "Coverage collection disabled via DISABLE_COVERAGE environment variable");
+        }
+    }
+
+    if (coverage_enabled) {
+        INFO(FUZZTEST_RUNNER, "Starting coverage collection");
+        coverage_mapper::RunCoverageMapperReciever(root.mapper, app);
+        coverage_mapper::WaitCoverageReady();
+    } else {
+        INFO(FUZZTEST_RUNNER, "Coverage collection is disabled, fake coverage will used");
+        coverage_mapper::InitFakeCoverage();
+    }
 
     char* custom_argv[] = {
         "kos_ipc_fuzzer",
@@ -46,9 +70,10 @@ int main(int argc, char** argv) {
 
     std::this_thread::sleep_for(1s);
 
-    coverage_mapper::Print();
-
-    coverage_mapper::Stop();
+    if (coverage_enabled) {
+        coverage_mapper::Print();
+        coverage_mapper::Stop();
+    }
 
     return rc;
 }

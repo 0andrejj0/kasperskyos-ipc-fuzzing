@@ -32,6 +32,13 @@ add_nk_edl (FUZZER_EDL "xdl/FuzztestRunner.edl"
 add_dependencies (fuzztest_runner_main FUZZER_EDL)
 bind_nk_targets (fuzztest_runner_main FUZZER_EDL)
 
+install(
+    FILES
+        ${CMAKE_CURRENT_SOURCE_DIR}/include/handle_storage.h
+        ${CMAKE_CURRENT_SOURCE_DIR}/include/common.h
+    DESTINATION
+        include/testing/)
+
 export_targets(
     TARGETS
         fuzztest_runner_main
